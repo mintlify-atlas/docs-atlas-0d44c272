@@ -1,0 +1,207 @@
+---
+title: "Telegram channel: remote access and multi-user bot"
+description: "Connect Mercury Agent to Telegram for remote access, HTML-formatted messages, file uploads, typing indicators, and multi-user admin/member access control."
+---
+
+The Telegram channel lets you chat with Mercury from your phone or any Telegram client. Mercury connects to Telegram via a bot you create with BotFather. Messages are formatted in HTML, files are delivered as native Telegram attachments, and a typing indicator keeps you informed while Mercury is working. Access is controlled by an organization model with admin and member roles, so you can share your Mercury instance with trusted users while keeping full control over who can join.
+
+## How it works
+
+Mercury uses [grammY](https://grammy.dev) to connect to the Telegram Bot API via long polling. When a message arrives, Mercury:
+
+1. Checks that the message is from a private chat — group messages are always ignored.
+2. Verifies that the sender is an approved user.
+3. Routes the message through the same agent loop used by the CLI.
+4. Sends a formatted HTML response back to the chat.
+
+While Mercury is processing, it sends `typing` actions to Telegram every four seconds so you see the typing indicator continuously. Responses are converted from Markdown to Telegram-compatible HTML before sending. If a message exceeds 4,096 characters (Telegram's limit), it is split at the nearest newline and sent as multiple messages.
+
+<Note>
+  Mercury only responds to private (one-to-one) chats. Any message sent from a group chat receives an immediate rejection and is not forwarded to the agent.
+</Note>
+
+## Setup
+
+### Creating a bot with BotFather
+
+<Steps>
+  <Step title="Open BotFather in Telegram">
+    Search for `@BotFather` in Telegram and open the chat.
+  </Step>
+  <Step title="Create a new bot">
+    Send `/newbot` and follow the prompts. BotFather will ask for a display name and a username ending in `bot`.
+  </Step>
+  <Step title="Copy the bot token">
+    BotFather sends a token that looks like `123456:ABC-DEF1234...`. Copy this token — you'll need it in the next step.
+  </Step>
+  <Step title="Add the token to Mercury">
+    Paste the token when prompted during `mercury setup` or `mercury doctor`. Mercury saves it to `~/.mercury/mercury.yaml` and enables the Telegram channel immediately.
+
+    ```bash
+    mercury doctor
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  You can add or change the Telegram bot token at any time by running `mercury doctor`. Press **Enter** to keep the current token, or paste a new one to replace it.
+</Tip>
+
+## Initial pairing
+
+After adding the bot token, you need to pair your Telegram account as the first admin. This is a one-time flow.
+
+<Steps>
+  <Step title="Send /start to your bot">
+    Open a private chat with your bot in Telegram and send `/start`. Mercury records your access request and replies with a six-digit pairing code:
+
+    ```
+    Your Telegram pairing request has been recorded.
+
+    Pairing code: 847291
+
+    Enter this code in the Mercury terminal to finish setup.
+    ```
+  </Step>
+  <Step title="Approve the pairing code in the CLI">
+    In your terminal, run:
+
+    ```bash
+    mercury telegram approve 847291
+    ```
+
+    Replace `847291` with the code shown in Telegram. Mercury promotes you to the first admin and confirms:
+
+    ```
+    ✓ Approved first Telegram admin 123456789 (@yourhandle).
+    ```
+  </Step>
+  <Step title="Start chatting">
+    Send any message to your bot. Mercury responds directly in the Telegram chat.
+  </Step>
+</Steps>
+
+<Note>
+  The pairing code flow only applies to the very first user. Once an admin exists, additional users are approved by user ID — not by pairing code. See [multi-user access](#multi-user-access-management) below.
+</Note>
+
+## Organization access model
+
+Mercury uses a two-tier access model for Telegram.
+
+**Admins** can:
+- Approve or reject pending access requests
+- Promote members to admin
+- Demote other admins to member
+- Reset all Telegram access with `/unpair`
+
+**Members** can:
+- Chat with Mercury
+
+The first user to pair becomes the first admin. At least one admin must remain at all times — Mercury will refuse to demote the last admin.
+
+<Note>
+  Pending access requests are stored in `~/.mercury/mercury.yaml`. If Mercury is running as a daemon, access changes take effect immediately after the daemon restarts. Mercury restarts the daemon automatically when you run any `mercury telegram` command.
+</Note>
+
+## Telegram CLI subcommands
+
+Use these commands from any terminal to manage Telegram access without opening the Telegram app.
+
+| Command | Description |
+|---------|-------------|
+| `mercury telegram list` | Show all approved users (admins and members) and pending requests |
+| `mercury telegram approve <code\|id>` | Approve a pairing code (first admin) or a pending request by user ID |
+| `mercury telegram reject <id>` | Reject a pending access request by user ID |
+| `mercury telegram remove <id>` | Remove an approved admin or member by user ID |
+| `mercury telegram promote <id>` | Promote a member to admin by user ID |
+| `mercury telegram demote <id>` | Demote an admin to member by user ID |
+| `mercury telegram reset` | Clear all Telegram access and pending requests |
+
+Use `mercury telegram list` to find numeric user IDs for the commands that require them.
+
+<Note>
+  `mercury telegram reset` is the CLI equivalent of sending `/unpair` in Telegram. After a reset, the bot accepts new `/start` requests and the first approved request must be confirmed with a pairing code from the CLI.
+</Note>
+
+## Multi-user access management
+
+When a new user sends `/start` to your bot and an admin already exists, Mercury:
+
+1. Records the request as pending.
+2. Notifies all Telegram admins with an inline **Approve / Reject** button in the chat.
+3. Admins can tap the button directly in Telegram, or run `mercury telegram approve <id>` from the CLI.
+
+Once approved, the new user is added as a member and receives a confirmation message.
+
+<AccordionGroup>
+  <Accordion title="Approving from Telegram">
+    When a new user requests access, all admins receive a message like:
+
+    ```
+    Telegram access request pending approval.
+
+    User ID: 987654321 (@newuser) Alice
+    Requested: 4/22/2026, 10:30:00 AM
+
+    Use the buttons below to approve or reject this user.
+    ```
+
+    Tap **Approve** or **Reject** directly in the chat.
+  </Accordion>
+  <Accordion title="Approving from the CLI">
+    Run `mercury telegram list` to see pending requests, then approve or reject by user ID:
+
+    ```bash
+    mercury telegram list
+    mercury telegram approve 987654321
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## File uploads via send_file
+
+When Mercury calls the `send_file` tool during a Telegram conversation, it uploads the file as a native Telegram attachment. Mercury automatically selects the correct upload method based on the file extension:
+
+| File type | Extensions | Sent as |
+|-----------|-----------|---------|
+| Images | `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`, `.svg` | Photo |
+| Audio | `.mp3`, `.ogg`, `.wav`, `.flac`, `.m4a` | Audio |
+| Video | `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm` | Video |
+| Everything else | — | Document |
+
+The filename is included as a caption. If the upload fails, Mercury sends an error message to the chat instead.
+
+## The /unpair command
+
+Any admin can send `/unpair` directly in Telegram to clear all access and start fresh. This is equivalent to running `mercury telegram reset` from the CLI.
+
+After `/unpair`, Mercury responds:
+
+```
+Telegram access reset. New users can send /start to request access.
+The first request must be approved from the Mercury CLI.
+```
+
+<Warning>
+  `/unpair` removes all admins and members immediately. You will lose access yourself and must complete the pairing flow again to regain it.
+</Warning>
+
+## Daemon mode and Telegram as primary interface
+
+When Mercury runs as a background daemon with `mercury up`, there is no interactive terminal. Telegram becomes your primary way to send messages and receive responses.
+
+```bash
+mercury up
+```
+
+The daemon runs 24/7, restarts automatically on crash, and starts on boot via your system's service manager. You can send tasks from your phone at any time and Mercury will reply in the Telegram chat.
+
+<CardGroup cols={2}>
+  <Card title="Daemon mode" icon="server" href="/daemon/overview">
+    Run Mercury 24/7 as a background service.
+  </Card>
+  <Card title="CLI channel" icon="terminal" href="/channels/cli">
+    Use Mercury interactively from your terminal.
+  </Card>
+</CardGroup>

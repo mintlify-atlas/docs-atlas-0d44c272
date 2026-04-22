@@ -1,0 +1,307 @@
+---
+title: "Git tools: status, commit, push, and GitHub"
+description: "Mercury's git tools cover status, diff, log, staging, commit, and push. Reads are auto-approved; writes need confirmation. Includes GitHub PR and issue tools."
+---
+
+Mercury includes a set of git tools that wrap standard git operations. Read-only tools (`git_status`, `git_diff`, `git_log`) are auto-approved and run without prompting. Write operations (`git_commit`, `git_push`) require your confirmation before executing. All git tools operate in Mercury's current working directory, which you set with the [`cd`](/reference/tools-shell#cd) tool.
+
+When GitHub is configured via `GITHUB_TOKEN`, an additional set of GitHub API tools becomes available for pull requests, issues, and direct API access.
+
+<Note>
+Auto-approved git read tools bypass the needs-approval flow entirely — they run at the same speed as `ls` or `cat`. Write tools follow the standard shell approval flow and will ask before proceeding.
+</Note>
+
+---
+
+## Tool overview
+
+| Tool | Description | Permission level |
+|---|---|---|
+| `git_status` | Show working tree status | Auto-approved (read) |
+| `git_diff` | Show unstaged or staged changes | Auto-approved (read) |
+| `git_log` | Show recent commit history | Auto-approved (read) |
+| `git_add` | Stage files for commit | Auto-approved |
+| `git_commit` | Create a commit | Needs approval |
+| `git_push` | Push commits to a remote | Needs approval |
+| `create_pr` | Create a GitHub pull request | Needs `GITHUB_TOKEN` |
+| `review_pr` | Get PR details and diff | Needs `GITHUB_TOKEN` |
+| `list_issues` | List GitHub issues | Needs `GITHUB_TOKEN` |
+| `create_issue` | Create a GitHub issue | Needs `GITHUB_TOKEN` |
+| `github_api` | Raw GitHub API request | Needs `GITHUB_TOKEN` |
+
+---
+
+## git_status
+
+Show the working tree status. Returns staged, unstaged, and untracked files using `git status --porcelain` format.
+
+<ParamField path="path" type="string">
+  Path to check. Defaults to the current working directory. When provided, runs `git -C "{path}" status --porcelain`.
+</ParamField>
+
+**Permission:** auto-approved (read).
+
+```text Example
+git_status({})
+git_status({ path: "/home/user/projects/myapp" })
+```
+
+---
+
+## git_diff
+
+Show changes between the working tree and the index, or between the index and HEAD. Output is truncated at 15,000 characters if the diff is large.
+
+<ParamField path="path" type="string">
+  File or directory to diff. When omitted, diffs all changes.
+</ParamField>
+
+<ParamField path="staged" type="boolean">
+  When `true`, shows staged changes (`--cached`) instead of unstaged changes.
+</ParamField>
+
+**Permission:** auto-approved (read).
+
+```text Example
+git_diff({})
+git_diff({ staged: true })
+git_diff({ path: "src/core/agent.ts" })
+git_diff({ path: "src/", staged: true })
+```
+
+---
+
+## git_log
+
+Show recent commit history with hash, decorations, and commit message. Uses `--oneline --decorate` format.
+
+<ParamField path="count" type="number">
+  Number of commits to show. Defaults to `10`.
+</ParamField>
+
+<ParamField path="path" type="string">
+  File or directory to show log for. When provided, limits log to commits that touched that path.
+</ParamField>
+
+**Permission:** auto-approved (read).
+
+```text Example
+git_log({})
+git_log({ count: 20 })
+git_log({ path: "src/capabilities/permissions.ts" })
+```
+
+---
+
+## git_add
+
+Add file contents to the staging area (index). Prepares files for the next commit.
+
+<ParamField path="paths" type="string[]" required>
+  Array of file paths to stage. Each path is quoted and passed to `git add`.
+</ParamField>
+
+**Permission:** auto-approved. Staging files does not modify the working tree or push to any remote.
+
+```text Example
+git_add({ paths: ["src/index.ts"] })
+git_add({ paths: ["src/core/agent.ts", "src/capabilities/permissions.ts"] })
+git_add({ paths: ["."] })
+```
+
+---
+
+## git_commit
+
+Record staged changes to the repository. Creates a new commit with the provided message. Mercury automatically appends a `Co-authored-by: Mercury <mercury@cosmicstack.org>` trailer to every commit for attribution.
+
+<ParamField path="message" type="string" required>
+  The commit message. A `Co-authored-by` trailer is appended automatically.
+</ParamField>
+
+**Permission:** needs approval — Mercury will ask before creating the commit.
+
+```text Example
+git_commit({ message: "fix: resolve token budget calculation off-by-one" })
+git_commit({ message: "feat: add schedule_task tool for cron scheduling" })
+```
+
+<Note>
+If there are no staged changes, the tool returns `"Nothing to commit — no staged changes."` without prompting for approval.
+</Note>
+
+---
+
+## git_push
+
+Push commits to a remote repository. This modifies a remote and always requires user approval. Times out after 30 seconds.
+
+<ParamField path="remote" type="string">
+  Remote name. Defaults to `"origin"`.
+</ParamField>
+
+<ParamField path="branch" type="string">
+  Branch name to push. Defaults to the current branch.
+</ParamField>
+
+**Permission:** needs approval — this is treated as a shell command matching `git push *` in the needs-approval list.
+
+```text Example
+git_push({})
+git_push({ remote: "origin", branch: "feature/scheduler" })
+```
+
+<Warning>
+Pushing to a remote is irreversible in the sense that other collaborators may pull your commits. Always confirm the branch and remote before approving.
+</Warning>
+
+---
+
+## GitHub tools
+
+The following tools are only registered when `GITHUB_TOKEN` is set in your environment or `mercury.yaml`. They use the GitHub REST API v3.
+
+### create_pr
+
+Create a pull request on GitHub.
+
+<ParamField path="owner" type="string" required>
+  Repository owner (username or organization).
+</ParamField>
+
+<ParamField path="repo" type="string" required>
+  Repository name.
+</ParamField>
+
+<ParamField path="title" type="string" required>
+  Pull request title.
+</ParamField>
+
+<ParamField path="body" type="string">
+  PR description in markdown. Defaults to an empty string.
+</ParamField>
+
+<ParamField path="head" type="string" required>
+  The branch containing the changes to merge.
+</ParamField>
+
+<ParamField path="base" type="string">
+  The branch to merge into. Defaults to `"main"`.
+</ParamField>
+
+<ParamField path="draft" type="boolean">
+  Create as a draft pull request. Defaults to `false`.
+</ParamField>
+
+### review_pr
+
+Get details of a pull request including its diff and metadata. Optionally post a review comment.
+
+<ParamField path="owner" type="string" required>
+  Repository owner (username or organization).
+</ParamField>
+
+<ParamField path="repo" type="string" required>
+  Repository name.
+</ParamField>
+
+<ParamField path="number" type="number" required>
+  Pull request number.
+</ParamField>
+
+<ParamField path="comment" type="string">
+  Review comment to post on the PR. When provided, posts a `COMMENT` review event.
+</ParamField>
+
+### list_issues
+
+List GitHub issues for a repository, sorted by last updated.
+
+<ParamField path="owner" type="string" required>
+  Repository owner (username or organization).
+</ParamField>
+
+<ParamField path="repo" type="string" required>
+  Repository name.
+</ParamField>
+
+<ParamField path="state" type='"open" | "closed" | "all"'>
+  Filter by issue state. Defaults to `"open"`.
+</ParamField>
+
+<ParamField path="labels" type="string">
+  Comma-separated label names to filter by (optional).
+</ParamField>
+
+<ParamField path="limit" type="number">
+  Maximum number of issues to return. Defaults to `10`, capped at `100`.
+</ParamField>
+
+### create_issue
+
+Create a new GitHub issue in a repository.
+
+<ParamField path="owner" type="string" required>
+  Repository owner (username or organization).
+</ParamField>
+
+<ParamField path="repo" type="string" required>
+  Repository name.
+</ParamField>
+
+<ParamField path="title" type="string" required>
+  Issue title.
+</ParamField>
+
+<ParamField path="body" type="string">
+  Issue description in markdown. Defaults to an empty string.
+</ParamField>
+
+<ParamField path="labels" type="string[]">
+  Array of label names to apply to the issue.
+</ParamField>
+
+### github_api
+
+Make a raw request to the GitHub API. GET requests are always allowed. Write operations (POST, PUT, PATCH, DELETE) may require user approval. When pushing file contents via `PUT /repos/{owner}/{repo}/contents/{path}`, Mercury automatically injects `Co-authored-by` attribution into the commit message.
+
+<ParamField path="path" type="string" required>
+  Full GitHub API v3 path, e.g., `/repos/owner/repo/issues` or `/repos/owner/repo/contents/src/index.ts`.
+</ParamField>
+
+<ParamField path="method" type='"GET" | "POST" | "PUT" | "PATCH" | "DELETE"'>
+  HTTP method. Defaults to `"GET"`.
+</ParamField>
+
+<ParamField path="body" type="string">
+  JSON-encoded request body for write operations. Must be a valid JSON string.
+</ParamField>
+
+<AccordionGroup>
+  <Accordion title="Push a file via the GitHub API">
+
+    Use this when `git push` fails due to authentication issues (no SSH key, token scope mismatch, etc.). The API approach creates a commit directly without local git credentials.
+
+    ```json
+    github_api({
+      path: "/repos/acme/myapp/contents/src/hello.ts",
+      method: "PUT",
+      body: "{\"message\": \"add hello.ts\", \"content\": \"ZXhwb3J0IGZ1bmN0aW9uIGhlbGxvKCkge30=\"}"
+    })
+    ```
+
+    The `content` field must be base64-encoded. `sha` is required when updating an existing file — get it first with a GET to the same path.
+  </Accordion>
+  <Accordion title="List branches">
+
+    ```json
+    github_api({ path: "/repos/acme/myapp/branches" })
+    ```
+  </Accordion>
+  <Accordion title="Search code">
+
+    ```json
+    github_api({ path: "/search/code?q=PermissionManager+repo:acme/myapp" })
+    ```
+  </Accordion>
+</AccordionGroup>

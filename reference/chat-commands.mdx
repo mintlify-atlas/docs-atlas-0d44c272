@@ -1,0 +1,219 @@
+---
+title: "In-chat commands reference for Mercury Agent"
+description: "Reference for Mercury's in-chat slash commands: /help, /status, /tools, /skills, /stream, /budget and its subcommands. Available in both CLI and Telegram."
+---
+
+In-chat commands are slash commands you type during a conversation with Mercury. Unlike terminal commands, you run them inside the chat itself — in the CLI prompt or in a Telegram message. Mercury intercepts them before sending anything to the LLM, so **they never consume API tokens**.
+
+<Note>
+  In-chat commands are different from [CLI commands](/reference/cli-commands), which you run in your terminal before or outside of a conversation. In-chat commands work while Mercury is already running.
+</Note>
+
+## Quick reference
+
+| Command | Description | Available in |
+|---|---|---|
+| `/help` | Show the full manual | CLI and Telegram |
+| `/status` | Show agent config, budget, and usage | CLI and Telegram |
+| `/tools` | List all loaded tools | CLI and Telegram |
+| `/skills` | List installed skills | CLI and Telegram |
+| `/stream` | Toggle Telegram text streaming on/off | CLI and Telegram |
+| `/stream on` | Enable streaming (live text updates) | CLI and Telegram |
+| `/stream off` | Disable streaming (single message delivery) | CLI and Telegram |
+| `/unpair` | Reset all Telegram access (admins only) | Telegram only |
+| `/budget` | Show token budget status | CLI and Telegram |
+| `/budget override` | Override budget for one request | CLI and Telegram |
+| `/budget reset` | Reset usage to zero | CLI and Telegram |
+| `/budget set <n>` | Change the daily token budget | CLI and Telegram |
+
+<Tip>
+  None of these commands send any data to an LLM. You can use them freely without worrying about token usage.
+</Tip>
+
+---
+
+## Information commands
+
+### `/help`
+
+Print the full Mercury manual: built-in tools, CLI commands, in-chat commands, permissions overview, skills reference, scheduling, and configuration file paths.
+
+```
+/help
+```
+
+---
+
+### `/status`
+
+Show a summary of the current agent configuration, token budget, and daily usage. Useful for quickly checking which provider is active or how much of your budget remains.
+
+```
+/status
+```
+
+The output includes:
+- Agent name and owner
+- Active LLM provider and model
+- Telegram enabled/disabled state
+- Installed skills
+- Daily token budget and current usage
+- Setup completion state
+
+---
+
+### `/tools`
+
+List all tools currently loaded and available to Mercury in this session. The list reflects the tools registered by the capability registry at startup.
+
+```
+/tools
+```
+
+---
+
+### `/skills`
+
+List all skills installed in `~/.mercury/skills/`. Skills extend Mercury's capabilities with custom instructions or workflows.
+
+```
+/skills
+```
+
+---
+
+## Streaming commands
+
+Streaming controls how Mercury delivers responses in Telegram. In streaming mode, text appears progressively as Mercury generates it. In non-streaming mode, the full response is sent as a single message.
+
+### `/stream`
+
+Toggle Telegram text streaming. If streaming is currently on, this turns it off. If it is currently off, this turns it on.
+
+```
+/stream
+```
+
+---
+
+### `/stream on`
+
+Enable streaming explicitly. Mercury will deliver text progressively as it generates the response.
+
+```
+/stream on
+```
+
+---
+
+### `/stream off`
+
+Disable streaming explicitly. Mercury will send the full response as a single message when ready.
+
+```
+/stream off
+```
+
+<Note>
+  Streaming settings apply to the Telegram channel. In the CLI, Mercury always streams output in real time.
+</Note>
+
+---
+
+## Budget commands
+
+The budget commands let you inspect and manage Mercury's daily token budget. The budget is a per-day token limit that prevents runaway costs. When usage reaches 70% of the budget, Mercury automatically becomes more concise.
+
+### `/budget`
+
+Show the current token budget status: daily limit, tokens used today, and percentage consumed.
+
+```
+/budget
+```
+
+---
+
+### `/budget override`
+
+Override the budget limit for one request. Mercury will send the next message to the LLM regardless of current usage. The override applies only to the immediately following request.
+
+```
+/budget override
+```
+
+<Warning>
+  Budget overrides bypass the daily limit for a single request. Use this sparingly — costs can spike if the request involves a large context or many tool calls.
+</Warning>
+
+---
+
+### `/budget reset`
+
+Reset the daily token usage counter to zero. This does not change the budget limit — it only clears the accumulated usage for today.
+
+```
+/budget reset
+```
+
+---
+
+### `/budget set <n>`
+
+Change the daily token budget to `<n>` tokens. The change takes effect immediately and persists to `~/.mercury/mercury.yaml`.
+
+```
+/budget set 100000
+```
+
+<ParamField path="argument.n" type="number" required>
+  The new daily token budget as a positive integer. Example: `50000`, `100000`, `200000`.
+</ParamField>
+
+---
+
+## Telegram-only in-chat commands
+
+### `/unpair`
+
+Available to Telegram admins only. Sends a reset command from inside Telegram to clear all access — removing all admins, members, and pending requests. Equivalent to running `mercury telegram unpair` from the CLI.
+
+```
+/unpair
+```
+
+<Warning>
+  `/unpair` removes your own Telegram access immediately. You must complete the pairing flow again to regain access. Only use this to start fresh.
+</Warning>
+
+---
+
+## CLI-only in-chat commands
+
+The following commands are available only in the CLI channel. They provide an interactive menu-driven interface and shortcuts for managing Telegram access without leaving the chat.
+
+| Command | Description |
+|---|---|
+| `/` or `/menu` | Open the CLI command picker with arrow-key navigation |
+| `/telegram` | Open the Telegram management menu |
+| `/telegram pending` | List pending Telegram access requests |
+| `/telegram users` | List approved Telegram users |
+| `/telegram approve <code\|id>` | Approve a pairing code or pending request |
+| `/telegram reject <id>` | Reject a pending Telegram request |
+| `/telegram remove <id>` | Remove an approved Telegram user |
+| `/telegram promote <id>` | Promote a member to admin |
+| `/telegram demote <id>` | Demote an admin to member |
+| `/telegram reset` | Reset all Telegram access |
+
+<Info>
+  These in-chat `/telegram` commands mirror the `mercury telegram` CLI commands. Use whichever is more convenient — both modify the same configuration and restart the daemon when changes are applied.
+</Info>
+
+---
+
+## Related pages
+
+- [CLI commands](/reference/cli-commands) — terminal commands for starting and managing Mercury
+- [Token budget](/features/token-budget) — how budget enforcement and daily limits work
+- [Telegram channel](/channels/telegram) — Telegram setup, access model, and streaming
+- [Skills overview](/skills/overview) — installing and using skills

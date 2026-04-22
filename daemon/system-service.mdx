@@ -1,0 +1,100 @@
+---
+title: "System service: auto-start Mercury on boot"
+description: "Install Mercury as a system service for auto-start on login. Supports macOS LaunchAgent, Linux systemd, and Windows Task Scheduler — no root required."
+---
+
+A system service wires Mercury into your operating system's startup mechanism so it launches automatically on login — without you running a command. Combined with the built-in watchdog, this means Mercury is always available: after a reboot, after a crash, and after a system update.
+
+<Note>
+  `mercury up` installs the system service for you automatically. You only need `mercury service install` if you want to manage the service separately from starting the daemon.
+</Note>
+
+## What a system service provides
+
+Without a system service, Mercury only runs when you explicitly start it. With one installed:
+
+- Mercury starts on login without any manual intervention
+- The OS restarts Mercury if it exits unexpectedly (macOS and Linux)
+- You can check service health with standard OS tools alongside `mercury service status`
+
+## Platform support
+
+| Platform | Method | Requires admin |
+|----------|--------|---------------|
+| **macOS** | LaunchAgent (`~/Library/LaunchAgents/`) | No |
+| **Linux** | systemd user unit (`~/.config/systemd/user/`) | No (linger for boot) |
+| **Windows** | Task Scheduler (`schtasks`) | No |
+
+All three approaches use user-level mechanisms — no `sudo`, no administrator prompt.
+
+### macOS
+
+Mercury installs a LaunchAgent plist at `~/Library/LaunchAgents/com.cosmicstack.mercury.plist`. The agent is loaded with `launchctl load` and configured with `RunAtLoad` and `KeepAlive` so macOS starts it at login and restarts it if it exits unexpectedly.
+
+Logs are written to `~/.mercury/daemon.log` and errors to `~/.mercury/daemon-error.log`.
+
+### Linux
+
+Mercury writes a systemd user unit to `~/.config/systemd/user/mercury.service`, then runs:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable mercury.service
+systemctl --user start mercury.service
+```
+
+The unit uses `Restart=on-failure` with a 5-second restart delay, so systemd handles crash recovery independently of Mercury's own watchdog.
+
+To have Mercury start at boot (not just at login), the installer also runs `loginctl enable-linger` for your user. If that step fails, you can enable it manually:
+
+```bash
+sudo loginctl enable-linger $USER
+```
+
+### Windows
+
+Mercury creates a Task Scheduler task named `MercuryAgent` using `schtasks` with the `onlogon` trigger and limited privileges (`/rl limited`). No administrator rights are required. The task runs immediately after creation and on every subsequent login.
+
+## Managing the service
+
+<Steps>
+  <Step title="Install">
+    ```bash
+    mercury service install
+    ```
+    Detects your platform, writes the appropriate config file, and activates the service.
+  </Step>
+  <Step title="Check status">
+    ```bash
+    mercury service status
+    ```
+    Shows whether the service is installed and running. On Linux, this proxies to `systemctl --user status mercury.service`.
+  </Step>
+  <Step title="Uninstall">
+    ```bash
+    mercury service uninstall
+    ```
+    Stops and removes the service. On macOS this unloads the plist and deletes it. On Linux this stops, disables, and removes the unit file. On Windows this deletes the scheduled task.
+  </Step>
+</Steps>
+
+## Why not PM2, forever, or node-windows?
+
+From [ADR-009](/daemon/overview): Mercury considered several popular process managers before choosing a custom approach.
+
+<AccordionGroup>
+  <Accordion title="PM2">
+    PM2 is 15MB with 50+ transitive dependencies and is licensed under AGPL-3.0. Bundling it would make Mercury's license situation complicated. Requiring users to install it separately adds friction and a separate tool to learn.
+  </Accordion>
+  <Accordion title="forever">
+    `forever` has been officially deprecated by its maintainers.
+  </Accordion>
+  <Accordion title="node-windows / node-mac / node-linux">
+    This trio is partially unmaintained. `node-linux` is no longer actively developed, and `node-mac` requires `sudo` for service installation.
+  </Accordion>
+  <Accordion title="Native detached spawn only">
+    Without a platform service, Mercury has no way to start on boot. A detached process alone also provides no crash recovery.
+  </Accordion>
+</AccordionGroup>
+
+The custom approach has zero external dependencies for daemonization, works without root on all supported platforms, and is maintained as part of Mercury itself.

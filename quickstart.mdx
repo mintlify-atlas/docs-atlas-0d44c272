@@ -1,80 +1,155 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Get started with Mercury Agent"
+description: "Install Mercury Agent and have a working AI agent running in under 60 seconds. Covers npx, global install, and first-run setup wizard."
 ---
 
-## Get started in three steps
+Mercury takes about 30 seconds to install and configure. You need Node.js 20 or later and an API key from at least one LLM provider — DeepSeek is a good starting point because it's cost-effective and has a generous free tier. This guide walks you from a fresh machine to a running agent.
 
-Get your documentation site running locally and make your first customization.
+## Install and start Mercury
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Install Mercury">
+    Run Mercury directly with `npx` (no install required), or add it globally so you can use the `mercury` command from anywhere:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    <CodeGroup>
+    ```bash npx (no install)
+    npx @cosmicstack/mercury-agent
+    ```
 
-### Step 2: Deploy your changes
+    ```bash Global install
+    npm i -g @cosmicstack/mercury-agent
+    mercury
+    ```
+    </CodeGroup>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <Tip>
+      Use `npx` to try Mercury without committing to a global install. You can always install globally later with `npm i -g @cosmicstack/mercury-agent`.
+    </Tip>
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Complete the setup wizard">
+    On first run, Mercury detects that no configuration exists and launches the setup wizard automatically. It asks for:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    - **Your name** — used in Mercury's identity and memory
+    - **An LLM API key** — at minimum, one provider key is required (DeepSeek, OpenAI, Anthropic, Grok, or Ollama)
+    - **A Telegram bot token** (optional) — skip this for now if you only want the CLI
 
-### Step 3: Go live
+    Press Enter to accept a suggested value, or type your own.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```
+    Welcome to Mercury Agent setup
+
+    What's your name? › Alice
+    Default LLM provider [deepseek]: › deepseek
+    DeepSeek API key: › sk-xxxxxxxxxxxxxxxx
+    Telegram bot token (optional, press Enter to skip): ›
+
+    Configuration saved to ~/.mercury/mercury.yaml
+    ```
+
+    Setup completes in under 30 seconds. Your config is saved to `~/.mercury/mercury.yaml` and your API keys to `~/.mercury/.env`.
+  </Step>
+
+  <Step title="Start the agent">
+    After setup, Mercury starts automatically. In future sessions, run:
+
+    ```bash
+    mercury
+    ```
+
+    or equivalently:
+
+    ```bash
+    mercury start
+    ```
+
+    You'll see the agent initialize and a prompt appear:
+
+    ```
+    Mercury is ready. Type a message or /help for commands.
+    > 
+    ```
+  </Step>
+
+  <Step title="Send your first message">
+    Type any message and press Enter. Mercury will respond and, if needed, ask for permission before taking any action on your filesystem or shell.
+
+    ```
+    > What files are in my home directory?
+
+    Mercury: I'll take a look.
+    ⚠ Mercury needs read access to ~/. Allow? (y/n/always): always
+    [Scope saved to ~/.mercury/permissions.yaml]
+
+    Here's what's in your home directory: ...
+    ```
+
+    Once you grant a scope with `always`, Mercury remembers it and never asks again.
+  </Step>
+
+  <Step title="Use in-chat commands">
+    These commands work during a conversation and don't consume API tokens:
+
+    | Command | Description |
+    |---------|-------------|
+    | `/help` | Show the full manual |
+    | `/status` | Show config, budget, and usage |
+    | `/tools` | List all loaded tools |
+    | `/budget` | Check token budget status |
+    | `/budget reset` | Reset daily usage to zero |
+    | `/budget set <n>` | Change daily token budget |
+  </Step>
+</Steps>
+
+## Run Mercury as a background daemon
+
+To keep Mercury running 24/7 — with auto-restart on crash and auto-start on boot — use `mercury up`:
+
+```bash
+mercury up
+```
+
+This installs the system service (if not already installed) and starts the background daemon. If Mercury is already running, it confirms that and shows the PID.
+
+```bash
+mercury restart   # Restart the background process
+mercury stop      # Stop the background process
+mercury logs      # View recent daemon logs
+mercury status    # Show whether the daemon is running
+```
+
+<Note>
+  In daemon mode, Telegram becomes your primary interface. The CLI is log-only since there's no terminal for input. See [daemon mode](/daemon/overview) for details.
+</Note>
+
+## Reconfigure at any time
+
+Changed your API key, want to add a Telegram bot, or just need to update settings? Run:
+
+```bash
+mercury doctor
+```
+
+The doctor command walks you through all settings interactively. Press Enter to keep any current value — you only need to type where you want to make a change.
+
+```bash
+mercury setup   # Re-run the full first-time setup wizard
+mercury status  # Show current configuration and daemon status
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Set up additional LLM providers, Telegram access, token budgets, and soul files.
+  </Card>
+  <Card title="Introduction" icon="book" href="/introduction">
+    Learn how Mercury's architecture, permission system, and agentic loop work.
+  </Card>
+  <Card title="Skills" icon="puzzle-piece" href="/skills/overview">
+    Extend Mercury's capabilities with installable skills and scheduled tasks.
+  </Card>
+  <Card title="Daemon mode" icon="server" href="/daemon/overview">
+    Run Mercury 24/7 as a system service on macOS, Linux, or Windows.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

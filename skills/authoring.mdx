@@ -1,0 +1,191 @@
+---
+title: "Write a custom SKILL.md for Mercury Agent"
+description: "Create a custom Mercury skill using a SKILL.md file with YAML frontmatter (name, version, allowed-tools) and a markdown instructions body."
+---
+
+A Mercury skill is a single directory containing a `SKILL.md` file. The file combines a YAML frontmatter block — which declares metadata and permissions — with a markdown body that provides the instructions Mercury follows when the skill is invoked. No code, no build step, no configuration beyond a text editor.
+
+## Authoring workflow
+
+<Steps>
+  <Step title="Copy the _template skill">
+    The `_template/` directory in `~/.mercury/skills/` is seeded automatically on first run. Copy it to a new directory named after your skill:
+
+    ```bash
+    cp -r ~/.mercury/skills/_template ~/.mercury/skills/my-skill
+    ```
+  </Step>
+  <Step title="Edit SKILL.md">
+    Open `~/.mercury/skills/my-skill/SKILL.md` and replace the template content with your skill's metadata and instructions.
+  </Step>
+  <Step title="Declare name, description, and version">
+    At minimum, the frontmatter must include `name` and `description`. Add `version` to track iterations:
+
+    ```yaml
+    name: my-skill
+    description: A short description of what this skill does
+    version: 0.1.0
+    ```
+  </Step>
+  <Step title="Add allowed-tools (optional)">
+    If your skill needs access to specific tools, list them under `allowed-tools`. Mercury elevates permissions to exactly these tools when `use_skill` is called — and no others:
+
+    ```yaml
+    allowed-tools:
+      - read_file
+      - list_dir
+      - run_command
+    ```
+
+    Omit `allowed-tools` if your skill doesn't need tool access beyond what Mercury already has in the current context.
+  </Step>
+  <Step title="Write the instructions body">
+    After the closing `---`, write markdown instructions for Mercury. Be specific. Mercury follows these instructions literally when the skill is invoked via `use_skill`.
+  </Step>
+  <Step title="Test the skill">
+    Ask Mercury to invoke your skill:
+
+    ```
+    Use the my-skill skill
+    ```
+
+    Mercury calls `use_skill`, loads the full instructions, and follows them. Use `/skills` to confirm discovery.
+  </Step>
+</Steps>
+
+## SKILL.md format
+
+### Frontmatter fields
+
+The YAML frontmatter block is delimited by `---` at the start of the file.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | `string` | Yes | Unique skill identifier. Used as the argument to `use_skill`. |
+| `description` | `string` | Yes | Short description shown in `list_skills` and the system prompt. |
+| `version` | `string` | No | Semantic version string (e.g. `0.1.0`). |
+| `allowed-tools` | `string[]` | No | Tool names elevated when the skill is invoked. Granular permission elevation. |
+| `disable-model-invocation` | `boolean` | No | When `true`, Mercury follows instructions only and skips LLM calls inside the skill. |
+
+These fields map directly to the `SkillMeta` type in Mercury's source:
+
+```typescript
+interface SkillMeta {
+  name: string;
+  description: string;
+  version?: string;
+  'allowed-tools'?: string[];
+  'disable-model-invocation'?: boolean;
+}
+```
+
+### The allowed-tools field
+
+`allowed-tools` is how skills elevate permissions without requiring blanket access. When Mercury calls `use_skill`, it passes the `allowed-tools` list to the `PermissionManager`, which grants access to exactly those tools for the current invocation.
+
+This means you can author a skill that reads files and runs commands — even if Mercury's default session doesn't have those permissions — and Mercury will ask for approval only for those specific tools.
+
+<Tip>
+  List only the tools your skill actually needs. A narrower `allowed-tools` list is easier to review and more trustworthy to users installing your skill.
+</Tip>
+
+Available tool names you can include in `allowed-tools`:
+
+```
+read_file      write_file     create_file    list_dir
+delete_file    run_command    fetch_url      git_status
+git_diff       git_log        git_add        git_commit
+git_push       send_message   install_skill  list_skills
+use_skill      schedule_task  list_scheduled_tasks
+cancel_scheduled_task
+```
+
+### Markdown body
+
+The markdown body is everything after the closing `---`. Mercury receives this as the skill's `instructions` field (from the `Skill` interface) and follows it as structured guidance for the current task.
+
+Write instructions the same way you'd brief a capable assistant: clearly, specifically, and with enough context to act without guessing. Use headers, numbered lists, and code blocks as needed.
+
+## Complete SKILL.md example
+
+````markdown
+---
+name: daily-digest
+description: Send a daily summary of activity
+version: 0.1.0
+allowed-tools:
+  - read_file
+  - list_dir
+  - run_command
+---
+
+# Daily Digest
+
+When invoked, compile a summary of recent activity and present it to the user.
+
+## Steps
+
+1. Use `list_dir` to scan the working directory for recently modified files.
+2. Use `read_file` to read relevant files (logs, changelogs, notes).
+3. Use `run_command` to run `git log --oneline --since="24 hours ago"` if a git repo is present.
+4. Summarize findings in plain language: what changed, what's pending, and anything that needs attention.
+
+## Output format
+
+- Use a bullet list grouped by category (Files, Git, Notes).
+- Keep the summary under 200 words.
+- Flag anything that looks like an error or blocker.
+````
+
+## Optional directories
+
+Two optional subdirectories can accompany `SKILL.md`:
+
+<AccordionGroup>
+  <Accordion title="scripts/">
+    Place executable scripts here. Mercury can reference and run them via `run_command` if `run_command` is listed in `allowed-tools`. Scripts are accessible at the path stored in the `Skill.scriptsDir` field.
+
+    ```
+    ~/.mercury/skills/daily-digest/
+    ├── SKILL.md
+    └── scripts/
+        └── summarize.sh
+    ```
+  </Accordion>
+  <Accordion title="references/">
+    Place reference documents, lookup tables, or static data here. Mercury can read them via `read_file` when the skill is active. Accessible at `Skill.referencesDir`.
+
+    ```
+    ~/.mercury/skills/code-review/
+    ├── SKILL.md
+    └── references/
+        ├── style-guide.md
+        └── security-checklist.md
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## How instructions are loaded
+
+Skill instructions follow Mercury's progressive disclosure model:
+
+- **At startup**, only `name` and `description` are read from each `SKILL.md` and stored as `SkillDiscovery` records. The markdown body is never loaded.
+- **On invocation**, `use_skill` calls `SkillLoader.load()`, which reads the full `SKILL.md`, parses the frontmatter and body, populates the `Skill` object (including `scriptsDir` and `referencesDir` if those directories exist), and injects the instructions into the active context.
+
+This means you can have many large, detailed skill files installed without any startup token cost.
+
+## Scheduling a skill as a recurring task
+
+Skills integrate with Mercury's cron scheduler. To run a skill on a recurring schedule, ask Mercury to schedule it with a `skill_name`:
+
+```
+Schedule the daily-digest skill to run every day at 8am
+```
+
+Mercury creates a scheduled task using `schedule_task` with `skill_name: "daily-digest"` and the cron expression `0 8 * * *`. Each time the task fires, Mercury calls `use_skill` internally and executes the skill silently in the agent loop.
+
+<Note>
+  Scheduled skills don't produce a visible channel response. They run silently as internal agent tasks — well-suited for digests, reports, and automated housekeeping.
+</Note>
+
+To share your skill with others, see [Installing skills](/skills/installing) for how users can install from a URL.

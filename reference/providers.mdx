@@ -1,0 +1,261 @@
+---
+title: "LLM providers: configure and switch AI backends"
+description: "Mercury supports DeepSeek, OpenAI, Anthropic, Grok, and Ollama with automatic fallback. Configure multiple providers and Mercury tries them in priority order."
+---
+
+Mercury connects to six LLM providers and uses them with automatic fallback. You configure which providers are active during the setup wizard or by running `mercury doctor` at any time. API keys are stored in `~/.mercury/.env` and loaded alongside your project's `.env` on startup.
+
+## Provider fallback
+
+When Mercury makes an LLM request, it starts with the default provider — DeepSeek by default, or whichever provider you set as default during setup. If that request fails, Mercury automatically tries the next configured provider in order, continuing until one succeeds or all fail.
+
+Mercury also tracks the last successful provider across requests. On the next call, it starts from that provider rather than always restarting from the configured default. This means if one provider has an outage, Mercury shifts to an alternative and stays there until something changes.
+
+The fallback order is determined by the order providers are registered in `ProviderRegistry`: DeepSeek → OpenAI → Anthropic → Grok → Ollama Cloud → Ollama Local. Only providers with a configured API key (or, for Ollama Local, a valid base URL) are registered.
+
+<Tip>
+  Configure at least two providers so Mercury has a fallback if one is unavailable. DeepSeek and OpenAI together make a cost-effective primary/fallback pair.
+</Tip>
+
+## Supported providers
+
+<AccordionGroup>
+  <Accordion title="DeepSeek" icon="bolt" defaultOpen={false}>
+    DeepSeek is the default provider. It's cost-effective and well-suited for agentic workloads.
+
+    | Setting | Value |
+    |---------|-------|
+    | Default model | `deepseek-chat` |
+    | API key env var | `DEEPSEEK_API_KEY` |
+    | Base URL | `https://api.deepseek.com/v1` |
+    | Architecture | OpenAI-compatible |
+
+    **API key format:** Must start with `sk-`.
+
+    ```bash
+    # ~/.mercury/.env
+    DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    To override the model:
+
+    ```bash
+    DEEPSEEK_MODEL=deepseek-reasoner
+    ```
+
+    Get your API key at [platform.deepseek.com](https://platform.deepseek.com).
+  </Accordion>
+
+  <Accordion title="OpenAI" icon="brain" defaultOpen={false}>
+    OpenAI gives access to GPT-4o, GPT-4o mini, o3, and other models.
+
+    | Setting | Value |
+    |---------|-------|
+    | Default model | `gpt-4o-mini` |
+    | API key env var | `OPENAI_API_KEY` |
+    | Base URL | `https://api.openai.com/v1` |
+    | Architecture | OpenAI-compatible |
+
+    **API key format:** Must start with `sk-`, `sk-proj-`, or `sk-svcacct-`.
+
+    ```bash
+    # ~/.mercury/.env
+    OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    To override the model:
+
+    ```bash
+    OPENAI_MODEL=gpt-4o
+    ```
+
+    During setup, Mercury fetches the list of available models from the OpenAI API so you can choose from what your account has access to.
+
+    Get your API key at [platform.openai.com](https://platform.openai.com).
+  </Accordion>
+
+  <Accordion title="Anthropic" icon="comment" defaultOpen={false}>
+    Anthropic provides Claude Sonnet, Haiku, and Opus models.
+
+    | Setting | Value |
+    |---------|-------|
+    | Default model | `claude-sonnet-4-20250514` |
+    | API key env var | `ANTHROPIC_API_KEY` |
+    | Base URL | `https://api.anthropic.com` |
+    | Architecture | Native Anthropic SDK |
+
+    **API key format:** Must start with `sk-ant-`.
+
+    ```bash
+    # ~/.mercury/.env
+    ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    To override the model:
+
+    ```bash
+    ANTHROPIC_MODEL=claude-haiku-4-20250514
+    ```
+
+    Anthropic uses a dedicated provider class (`AnthropicProvider`) rather than the OpenAI-compatible adapter, as the Anthropic API has a different authentication model.
+
+    Get your API key at [console.anthropic.com](https://console.anthropic.com).
+  </Accordion>
+
+  <Accordion title="Grok (xAI)" icon="x" defaultOpen={false}>
+    Grok is xAI's model, accessed via an OpenAI-compatible endpoint.
+
+    | Setting | Value |
+    |---------|-------|
+    | Default model | `grok-4` |
+    | API key env var | `GROK_API_KEY` |
+    | Base URL | `https://api.x.ai/v1` |
+    | Architecture | OpenAI-compatible |
+
+    ```bash
+    # ~/.mercury/.env
+    GROK_API_KEY=xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    To override the model:
+
+    ```bash
+    GROK_MODEL=grok-3
+    ```
+
+    Get your API key at [console.x.ai](https://console.x.ai).
+  </Accordion>
+
+  <Accordion title="Ollama Cloud" icon="cloud" defaultOpen={false}>
+    Ollama Cloud is a remote Ollama service accessed via API key. It uses the same OpenAI-compatible interface as the local Ollama instance.
+
+    | Setting | Value |
+    |---------|-------|
+    | Default model | `gpt-oss:120b` |
+    | API key env var | `OLLAMA_CLOUD_API_KEY` |
+    | Base URL | `https://ollama.com/api` |
+    | Architecture | OpenAI-compatible |
+
+    ```bash
+    # ~/.mercury/.env
+    OLLAMA_CLOUD_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    To override the model or endpoint:
+
+    ```bash
+    OLLAMA_CLOUD_MODEL=llama3.3:70b
+    OLLAMA_CLOUD_BASE_URL=https://your-ollama-cloud-endpoint/api
+    ```
+  </Accordion>
+
+  <Accordion title="Ollama Local" icon="server" defaultOpen={false}>
+    Ollama Local connects to an Ollama instance running on your machine. No API key is needed — Mercury checks for a valid base URL and model name instead.
+
+    | Setting | Value |
+    |---------|-------|
+    | Default model | `gpt-oss:20b` |
+    | API key env var | None required |
+    | Base URL | `http://127.0.0.1:11434/api` |
+    | Architecture | OpenAI-compatible |
+    | Enabled by default | No |
+
+    To enable Ollama Local, set `OLLAMA_LOCAL_ENABLED=true` and make sure Ollama is running:
+
+    ```bash
+    # ~/.mercury/.env
+    OLLAMA_LOCAL_ENABLED=true
+    OLLAMA_LOCAL_MODEL=llama3.2:3b
+    OLLAMA_LOCAL_BASE_URL=http://127.0.0.1:11434/api
+    ```
+
+    <Info>
+      Ollama Local is disabled by default. Enable it explicitly via `OLLAMA_LOCAL_ENABLED=true` or during `mercury doctor`.
+    </Info>
+
+    Install Ollama at [ollama.com](https://ollama.com) and pull a model before enabling this provider:
+
+    ```bash
+    ollama pull llama3.2:3b
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Configure providers
+
+Providers are configured during the initial setup wizard. To change keys, models, or which providers are active at any time, run:
+
+```bash
+mercury doctor
+```
+
+`mercury doctor` shows your current configuration with masked keys and lets you update each provider. Press Enter to keep an existing value.
+
+During setup, Mercury fetches the available model list from each provider's API — so you can select from models your account actually has access to, rather than typing a model name manually.
+
+## Change the default provider
+
+The default provider is set with the `DEFAULT_PROVIDER` environment variable or chosen during setup. Valid values are `deepseek`, `openai`, `anthropic`, `grok`, `ollamaCloud`, and `ollamaLocal`.
+
+```bash
+# ~/.mercury/.env
+DEFAULT_PROVIDER=openai
+```
+
+After changing this, restart Mercury for the new default to take effect.
+
+## API key storage
+
+All API keys are stored in `~/.mercury/.env`. Mercury loads this file automatically on startup alongside any `.env` in your working directory.
+
+```bash
+# ~/.mercury/.env
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+GROK_API_KEY=xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OLLAMA_CLOUD_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DEFAULT_PROVIDER=deepseek
+```
+
+You can also set these as regular shell environment variables — Mercury reads `process.env` so any value present in the environment at startup will be picked up.
+
+<Warning>
+  Do not commit `~/.mercury/.env` to version control. It contains your API keys.
+</Warning>
+
+## API key format validation
+
+Mercury validates key format at setup time and surfaces an error immediately if the format doesn't match what the provider expects.
+
+| Provider | Required format |
+|----------|----------------|
+| OpenAI | Starts with `sk-`, `sk-proj-`, or `sk-svcacct-` |
+| Anthropic | Starts with `sk-ant-` |
+| DeepSeek | Starts with `sk-` |
+| Grok | No enforced prefix |
+| Ollama Cloud | No enforced prefix |
+| Ollama Local | No key required |
+
+Format validation runs at configuration time only. At runtime, Mercury relies on provider API responses to detect authentication failures and trigger fallback.
+
+## OpenAI-compatible architecture
+
+Most Mercury providers — DeepSeek, OpenAI, Grok, Ollama Cloud, and Ollama Local — share the same `OpenAICompatProvider` implementation, which accepts a `baseUrl` alongside the API key. This means you can point any of these providers at a custom endpoint by overriding the base URL environment variable:
+
+```bash
+# Use a local OpenAI-compatible proxy for OpenAI
+OPENAI_BASE_URL=http://localhost:8080/v1
+OPENAI_API_KEY=not-needed
+
+# Use a self-hosted Grok-compatible endpoint
+GROK_BASE_URL=https://my-xai-proxy.example.com/v1
+```
+
+Anthropic uses a separate native SDK integration (`AnthropicProvider`) and does not share this base URL mechanism, though `ANTHROPIC_BASE_URL` is still read from the environment for future use.
+
+## Roadmap
+
+<Note>
+  **Google Gemini and Mistral are on the roadmap.** These providers are not yet available but are planned for a future release. Mercury's OpenAI-compatible architecture makes it straightforward to add new providers — Gemini and Mistral both expose OpenAI-compatible endpoints, so integration requires only new entries in the provider registry.
+</Note>

@@ -1,0 +1,123 @@
+---
+title: "CLI channel: real-time streaming agent interface"
+description: "Use Mercury Agent from your terminal with readline input, real-time text streaming, arrow-key command menus, and inline permission prompts."
+---
+
+The CLI channel is Mercury's default interface. When you run `mercury` or `mercury start`, Mercury opens a readline prompt in your terminal where you can type messages and receive streamed responses in real time. All output is markdown-rendered and indented for readability. The CLI is always active in foreground mode; when running as a daemon, it becomes log-only since there is no interactive terminal available.
+
+## Starting the CLI
+
+Run either of the following to start Mercury in the foreground:
+
+```bash
+mercury
+mercury start
+```
+
+Both commands are equivalent. On the first run, Mercury launches the setup wizard instead of the chat interface. Once setup is complete, you land directly in the conversation prompt.
+
+To start Mercury with verbose debug logging, add the `--verbose` flag:
+
+```bash
+mercury --verbose
+```
+
+<Tip>
+  Use `mercury up` to run Mercury persistently in the background as a system service. In that mode, the CLI is log-only — use Telegram to send messages. See [daemon mode](/daemon/overview) for details.
+</Tip>
+
+## Readline interface
+
+Once started, Mercury displays a yellow `You:` prompt. Type your message and press **Enter** to send it. Empty lines are ignored and re-prompt without sending.
+
+```
+  You: What files are in the current directory?
+```
+
+Mercury prints its name above each response, with the elapsed time in seconds shown as a dim suffix:
+
+```
+  Mercury: (1.4s)
+  Here are the files in the current directory: ...
+```
+
+Responses are rendered from markdown — headings, bold, code blocks, and lists are all formatted for the terminal. When the response streams in, Mercury writes chunks directly to stdout; once streaming completes, it replaces the raw streamed text with the fully rendered markdown version.
+
+### Streaming behavior
+
+Mercury streams responses token-by-token as the LLM produces them. During streaming:
+
+- The agent name is printed first on its own line
+- Tokens appear inline as they arrive
+- Tool steps are printed as dim lines within the stream (e.g., `  reading file src/index.ts`)
+- When streaming finishes, the raw streamed output is cleared and replaced with the properly indented, markdown-rendered version
+
+This means you see progress immediately without waiting for the full response.
+
+## Arrow-key command menus
+
+Some operations — such as model selection during setup — present interactive menus you navigate with arrow keys. Mercury pauses the readline prompt while a menu is active and restores it automatically when the menu closes or is cancelled.
+
+Pressing **Escape** or **Ctrl+C** within a menu cancels it and returns to the prompt without taking action.
+
+## Inline permission prompts
+
+When Mercury needs to perform an action that requires your approval — such as writing to a file or running a shell command outside its authorized scope — it pauses and displays a warning inline:
+
+```
+  ⚠ Mercury needs write access to /home/you/project/output.txt
+  >
+```
+
+Type `y` and press **Enter** to allow the action once. Type `always` to allow it for the entire session. Press **Enter** with an empty response or type `n` to deny it.
+
+For multi-step confirmation prompts (such as continuing an agentic loop), the prompt reads:
+
+```
+  ⚠ <question>
+  Continue? [y/N]
+```
+
+<Note>
+  Permission prompts block the current task until you respond. Mercury will not proceed or time out on its own — it waits for your input.
+</Note>
+
+## In-chat commands
+
+These commands work at the `You:` prompt without consuming any API tokens. They are processed locally before the message reaches the LLM.
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show the full manual |
+| `/status` | Show agent config, budget, and usage |
+| `/tools` | List all loaded tools |
+| `/skills` | List installed skills |
+| `/budget` | Show token budget status |
+| `/budget override` | Override the budget for one request |
+| `/budget reset` | Reset token usage to zero |
+| `/budget set <n>` | Change the daily token budget |
+| `/stream` | Toggle response streaming on or off |
+| `/stream off` | Disable streaming (send as a single message) |
+
+<Note>
+  `/stream` is primarily useful when testing or piping CLI output to another program. In normal use, streaming is on by default and gives you faster feedback.
+</Note>
+
+## Daemon mode: log-only CLI
+
+When Mercury runs as a background daemon (`mercury start -d` or `mercury up`), there is no interactive terminal. The CLI channel is still initialized but operates in log-only mode — it writes output to `~/.mercury/daemon.log` rather than to a terminal prompt.
+
+In daemon mode, Telegram becomes the primary interactive channel. You send messages to the bot and receive responses there. Use `mercury logs` to tail the daemon log from any terminal session:
+
+```bash
+mercury logs
+```
+
+<CardGroup cols={2}>
+  <Card title="Daemon mode" icon="server" href="/daemon/overview">
+    Run Mercury 24/7 as a background service with auto-restart on crash.
+  </Card>
+  <Card title="Telegram channel" icon="paper-plane" href="/channels/telegram">
+    Use Mercury remotely via Telegram when running as a daemon.
+  </Card>
+</CardGroup>

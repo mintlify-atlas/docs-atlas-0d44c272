@@ -1,0 +1,110 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Mercury Agent",
+  "projectDescription": "A soul-driven AI agent with permission-hardened tools, token budgets, and multi-channel access that runs 24/7 from the CLI or Telegram.",
+  "theme": "luma",
+  "primaryColor": "#00BCD4",
+  "lightColor": "#E0F7FA",
+  "darkColor": "#006064",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Channels",
+            "pages": [
+              "channels/cli",
+              "channels/telegram"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/permissions",
+              "features/token-budget",
+              "features/memory",
+              "features/scheduler"
+            ]
+          },
+          {
+            "group": "Skills",
+            "pages": [
+              "skills/overview",
+              "skills/installing",
+              "skills/authoring"
+            ]
+          },
+          {
+            "group": "Daemon & Services",
+            "pages": [
+              "daemon/overview",
+              "daemon/system-service"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "CLI Commands",
+            "pages": [
+              "reference/cli-commands",
+              "reference/chat-commands"
+            ]
+          },
+          {
+            "group": "Built-in Tools",
+            "pages": [
+              "reference/tools-filesystem",
+              "reference/tools-shell",
+              "reference/tools-git",
+              "reference/tools-web-skills-scheduler"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "reference/providers"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Permission-hardened tool execution with folder-level scoping and shell blocklist",
+    "Soul-driven personality via user-owned markdown files (soul.md, persona.md, taste.md, heartbeat.md)",
+    "Daily token budget enforcement with auto-concise mode and budget commands",
+    "Multi-channel access via CLI (readline + streaming) and Telegram (HTML formatting, file uploads)",
+    "24/7 daemon mode with crash recovery, watchdog, and cross-platform system service install",
+    "Extensible skill system based on Agent Skills specification with progressive disclosure",
+    "Built-in task scheduler with cron expressions and YAML persistence",
+    "Multi-provider LLM support with automatic fallback (DeepSeek, OpenAI, Anthropic, Grok, Ollama)",
+    "Three-tier memory system: short-term, long-term facts, and episodic memory"
+  ],
+  "publicApiSurface": [
+    "mercury (CLI entry point)",
+    "mercury start / mercury up / mercury stop / mercury restart",
+    "mercury doctor / mercury setup / mercury status / mercury logs",
+    "mercury telegram list|approve|reject|remove|promote|demote|reset",
+    "mercury service install|uninstall|status",
+    "/help /status /tools /skills /budget /stream (in-chat commands)",
+    "read_file, write_file, create_file, edit_file, list_dir, delete_file, send_file",
+    "run_command, cd, approve_command",
+    "git_status, git_diff, git_log, git_add, git_commit, git_push",
+    "fetch_url",
+    "install_skill, list_skills, use_skill",
+    "schedule_task, list_scheduled_tasks, cancel_scheduled_task",
+    "send_message, budget_status, approve_scope"
+  ]
+}

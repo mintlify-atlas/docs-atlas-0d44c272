@@ -1,0 +1,119 @@
+---
+title: "Token budget: daily usage limits and control"
+description: "Mercury enforces a configurable daily token budget, switches to concise mode at 70% usage, and lets you check, reset, or override limits with /budget commands."
+---
+
+Mercury tracks every token it sends and receives. A configurable daily budget prevents runaway usage when Mercury is running continuously as a daemon — especially important when it's processing heartbeat events, scheduled tasks, and unsolicited Telegram messages throughout the day. The budget resets automatically at midnight and persists across restarts via `~/.mercury/token-usage.json`.
+
+## How the budget works
+
+Each request that completes successfully is recorded to the token log. Mercury sums `inputTokens + outputTokens` per request and accumulates them in `dailyUsed`. When `dailyUsed` reaches `dailyBudget`, further requests are blocked until the budget resets or is overridden.
+
+The underlying data structures are:
+
+```typescript
+export interface TokenTracker {
+  dailyUsed: number;
+  dailyBudget: number;
+  lastResetDate: string;
+  requestLog: TokenLogEntry[];
+}
+
+export interface TokenLogEntry {
+  timestamp: number;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  channelType: string;
+}
+```
+
+Token usage is written to `~/.mercury/token-usage.json` after every request. The last 200 log entries are retained.
+
+## Default configuration
+
+| Setting | Default value |
+|---------|--------------|
+| Daily budget | 1,000,000 tokens (set lower via `DAILY_TOKEN_BUDGET` in `~/.mercury/.env`) |
+| Auto-concise threshold | 70% of daily budget |
+| System prompt (soul + guardrails + persona) | ~500 tokens per request |
+| Short-term context window | Last 10 messages |
+| Long-term facts injected per request | ~3 keyword-matched facts |
+
+<Note>
+The hard-coded fallback budget is 1,000,000 tokens per day. Set `DAILY_TOKEN_BUDGET=50000` in `~/.mercury/.env` (or use `/budget set <n>` in chat) to apply a tighter daily limit. When usage exceeds 70% of the configured budget, Mercury automatically switches to a more concise response style.
+</Note>
+
+## Context and prompt sizing
+
+Every request carries a fixed overhead in addition to the conversation context:
+
+- **System prompt** — The soul, persona, taste, and guardrail files are injected on every request, totalling approximately 500 tokens.
+- **Short-term context** — The last 10 messages from the current conversation are included, keeping the working context bounded.
+- **Long-term facts** — Mercury searches its fact store by keyword and injects up to 3 matching facts, adding targeted context without loading the full fact history.
+
+This design keeps per-request costs predictable and avoids the runaway context growth that can drain a daily budget in a handful of long conversations.
+
+## In-chat commands
+
+These commands are handled locally and do not consume API tokens.
+
+| Command | Description |
+|---------|-------------|
+| `/budget` | Show current usage, budget, and percentage consumed |
+| `/budget override` | Allow the next request to proceed even if over budget |
+| `/budget reset` | Reset daily usage to zero |
+| `/budget set <n>` | Set a new daily token budget (persisted to config) |
+
+`/budget set` calls `TokenBudget.setBudget()` internally, which saves the new value to `~/.mercury/mercury.yaml` so it survives restarts.
+
+## The `budget_status` tool
+
+Mercury exposes a `budget_status` tool that returns the current budget state as structured data. You can ask Mercury directly:
+
+> "What's my token usage?"
+
+Mercury will call `budget_status` and format the response using `getStatusText()`, which returns output like:
+
+```
+Token budget: 12,450 / 50,000 used (24%), 37,550 remaining
+```
+
+## Configuring the budget
+
+<Steps>
+  <Step title="During initial setup">
+    Run `mercury setup` (or `npx @cosmicstack/mercury-agent` for a first install). The setup wizard prompts for a daily token budget. Enter your preferred limit (e.g. `50000` for 50,000 tokens).
+  </Step>
+  <Step title="After setup with mercury doctor">
+    Run `mercury doctor` to reconfigure any setting. Press Enter to keep the current budget value, or type a new number.
+  </Step>
+  <Step title="In-chat with /budget set">
+    Use `/budget set 100000` during any conversation to update the budget immediately. The change is persisted to config.
+  </Step>
+</Steps>
+
+## Token usage storage
+
+Usage data is stored at `~/.mercury/token-usage.json`. The file is written after every request and read on startup to restore the current day's usage. If the `lastResetDate` in the file doesn't match today's date, usage is reset to zero automatically.
+
+```json
+{
+  "dailyUsed": 12450,
+  "dailyBudget": 50000,
+  "lastResetDate": "2026-04-22",
+  "requestLog": [
+    {
+      "timestamp": 1745280000000,
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "inputTokens": 680,
+      "outputTokens": 142,
+      "totalTokens": 822,
+      "channelType": "cli"
+    }
+  ]
+}
+```

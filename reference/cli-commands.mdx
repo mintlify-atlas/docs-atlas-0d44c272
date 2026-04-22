@@ -1,0 +1,342 @@
+---
+title: "Mercury Agent terminal commands reference"
+description: "All Mercury CLI commands: start, stop, restart, up, logs, status, doctor, setup, telegram subcommands, and service management. Flags and arguments included."
+---
+
+Mercury's CLI commands let you start, stop, and manage the agent from your terminal. They run outside of any conversation and never consume API tokens. The commands fall into four groups: agent lifecycle, configuration, Telegram access management, and system service management.
+
+## Quick reference
+
+| Command | Description |
+|---|---|
+| `mercury` | Start the agent (same as `mercury start`) |
+| `mercury start` | Start in foreground |
+| `mercury start -d` | Start in background (daemon mode) |
+| `mercury up` | Install service + start daemon + ensure running |
+| `mercury stop` | Stop a background process |
+| `mercury restart` | Restart a background process |
+| `mercury logs` | View recent daemon logs |
+| `mercury status` | Show config and daemon status |
+| `mercury doctor` | Reconfigure — Enter to keep current values |
+| `mercury setup` | Re-run the setup wizard |
+| `mercury help` | Show the full manual |
+| `mercury --verbose` | Start with debug logging |
+| `mercury telegram list` | Show approved users and pending requests |
+| `mercury telegram approve <codeOrUserId>` | Approve a pairing code or pending request |
+| `mercury telegram reject <userId>` | Reject a pending access request |
+| `mercury telegram remove <userId>` | Remove an approved user |
+| `mercury telegram promote <userId>` | Promote a member to admin |
+| `mercury telegram demote <userId>` | Demote an admin to member |
+| `mercury telegram unpair` | Reset all Telegram access |
+| `mercury service install` | Install as system service (auto-start on boot) |
+| `mercury service uninstall` | Uninstall the system service |
+| `mercury service status` | Show system service status |
+
+---
+
+## Agent lifecycle
+
+### `mercury` / `mercury start`
+
+Start Mercury in the foreground. If setup has not been completed, running either command triggers the setup wizard automatically.
+
+```bash
+mercury
+mercury start
+```
+
+<ParamField path="option.-v" type="flag">
+  `-v, --verbose` — Enable debug logging on stderr.
+</ParamField>
+
+<ParamField path="option.-d" type="flag">
+  `-d, --detached` — Run in background (daemon mode). Equivalent to starting a daemon without installing the system service.
+</ParamField>
+
+<Tip>
+  Use `mercury up` instead of `mercury start -d` when you want Mercury to persist across reboots. `mercury up` installs the system service automatically.
+</Tip>
+
+---
+
+### `mercury up`
+
+The recommended way to run Mercury persistently. This command:
+
+1. Runs the setup wizard if setup is not yet complete.
+2. Installs the system service if it is not already installed.
+3. Starts the background daemon.
+4. Confirms Mercury is running and shows the PID.
+
+If Mercury is already running, the command confirms the current PID and exits.
+
+```bash
+mercury up
+```
+
+<Note>
+  `mercury up` is idempotent — it is safe to run multiple times. If the service is already installed and the daemon is already running, the command just prints the current status.
+</Note>
+
+---
+
+### `mercury stop`
+
+Stop a running background Mercury process.
+
+```bash
+mercury stop
+```
+
+---
+
+### `mercury restart`
+
+Restart a running background Mercury process. Use this after changing configuration to apply the new settings without stopping manually.
+
+```bash
+mercury restart
+```
+
+<Note>
+  Telegram access changes made via `mercury telegram` subcommands automatically restart the daemon when it is running. You generally do not need to call `mercury restart` after those commands.
+</Note>
+
+---
+
+### `mercury logs`
+
+Print recent daemon logs to your terminal.
+
+```bash
+mercury logs
+```
+
+Logs are written to `~/.mercury/daemon.log` in daemon mode.
+
+---
+
+### `mercury status`
+
+Print current configuration and daemon status. Displays:
+
+- Agent name and owner
+- Active LLM provider
+- Telegram enabled/disabled state and access summary
+- Installed skills
+- Daily token budget
+- Setup completion state
+- Daemon running state and PID
+- Mercury home directory path
+
+```bash
+mercury status
+```
+
+---
+
+## Configuration commands
+
+### `mercury doctor`
+
+Open the interactive reconfiguration wizard. All fields show current values and pressing Enter keeps them. Use this to change API keys, agent name, Telegram token, GitHub integration, or token budget.
+
+```bash
+mercury doctor
+```
+
+<Tip>
+  `mercury doctor` and `mercury setup` run the same wizard. The difference is intent — `doctor` is for fixing or updating an existing setup, while `setup` re-runs the first-time wizard experience.
+</Tip>
+
+---
+
+### `mercury setup`
+
+Re-run the full setup wizard. Behaves identically to `mercury doctor`: shows current values and lets you update them field by field.
+
+```bash
+mercury setup
+```
+
+---
+
+### `mercury help`
+
+Print the full manual, including built-in tool reference, CLI commands, in-chat commands, permissions overview, skills info, and configuration paths.
+
+```bash
+mercury help
+```
+
+---
+
+### `mercury --verbose`
+
+Start the agent with debug logging enabled on stderr.
+
+```bash
+mercury --verbose
+```
+
+---
+
+## Telegram subcommands
+
+These commands manage the Telegram access model. Mercury uses an organization access model with **admins** and **members**. Admins can approve requests and manage roles; members can chat with Mercury.
+
+<Note>
+  All `mercury telegram` commands that modify access automatically restart the background daemon (if running) so that changes take effect immediately.
+</Note>
+
+### `mercury telegram list`
+
+Print the current Telegram access state: admins, members, and pending requests with pairing codes.
+
+```bash
+mercury telegram list
+```
+
+---
+
+### `mercury telegram approve <codeOrUserId>`
+
+Approve a pending Telegram access request.
+
+- **First-time pairing** (no admin exists yet): pass the pairing code the user received after sending `/start` to your bot.
+- **Subsequent approvals** (admin already exists): pass the numeric Telegram user ID from `mercury telegram list`.
+
+```bash
+# Approve the first admin by pairing code
+mercury telegram approve ABC123
+
+# Approve a later request by user ID
+mercury telegram approve 123456789
+```
+
+<ParamField path="argument.codeOrUserId" type="string" required>
+  A pairing code (for first-time setup) or a numeric Telegram user ID (for subsequent approvals).
+</ParamField>
+
+---
+
+### `mercury telegram reject <userId>`
+
+Reject a pending Telegram access request.
+
+```bash
+mercury telegram reject 123456789
+```
+
+<ParamField path="argument.userId" type="number" required>
+  Numeric Telegram user ID of the pending request to reject.
+</ParamField>
+
+---
+
+### `mercury telegram remove <userId>`
+
+Remove an already-approved Telegram admin or member, revoking their access.
+
+```bash
+mercury telegram remove 123456789
+```
+
+<ParamField path="argument.userId" type="number" required>
+  Numeric Telegram user ID of the approved user to remove.
+</ParamField>
+
+---
+
+### `mercury telegram promote <userId>`
+
+Promote an approved member to admin. Admins can approve/reject requests and manage roles.
+
+```bash
+mercury telegram promote 123456789
+```
+
+<ParamField path="argument.userId" type="number" required>
+  Numeric Telegram user ID of the member to promote.
+</ParamField>
+
+---
+
+### `mercury telegram demote <userId>`
+
+Demote a Telegram admin to member. Mercury requires at least one admin at all times — this command will fail if you try to demote the last remaining admin.
+
+```bash
+mercury telegram demote 123456789
+```
+
+<ParamField path="argument.userId" type="number" required>
+  Numeric Telegram user ID of the admin to demote.
+</ParamField>
+
+<Warning>
+  Mercury must always have at least one Telegram admin. The command will print an error and exit if you try to demote the last admin.
+</Warning>
+
+---
+
+### `mercury telegram unpair`
+
+Reset all Telegram access — removes all admins, members, and pending requests. After unpairing, the first user to send `/start` to the bot will receive a new pairing code, which you approve with `mercury telegram approve <code>`.
+
+```bash
+mercury telegram unpair
+```
+
+<Warning>
+  This removes all approved users. Anyone who wants access after this point must send `/start` again and be re-approved.
+</Warning>
+
+---
+
+## Service subcommands
+
+System service commands install and manage Mercury as an OS-level service that starts on boot and restarts on crash. `mercury up` calls `mercury service install` automatically — use these commands only when you need direct control.
+
+| Platform | Service method | Requires admin |
+|---|---|---|
+| macOS | LaunchAgent (`~/Library/LaunchAgents/`) | No |
+| Linux | systemd user unit (`~/.config/systemd/user/`) | No |
+| Windows | Task Scheduler (`schtasks`) | No |
+
+### `mercury service install`
+
+Install Mercury as a system service. After installation, Mercury starts automatically on boot and restarts automatically on crash.
+
+```bash
+mercury service install
+```
+
+---
+
+### `mercury service uninstall`
+
+Remove the system service. Mercury will no longer start on boot.
+
+```bash
+mercury service uninstall
+```
+
+---
+
+### `mercury service status`
+
+Print the current system service status.
+
+```bash
+mercury service status
+```
+
+---
+
+## Related pages
+
+- [In-chat commands](/reference/chat-commands) — slash commands available during a conversation
+- [Daemon overview](/daemon/overview) — how the background daemon and crash recovery work
+- [System service](/daemon/system-service) — platform-specific service details
+- [Telegram channel](/channels/telegram) — Telegram setup and access model

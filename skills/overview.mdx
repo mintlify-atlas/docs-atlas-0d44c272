@@ -1,0 +1,107 @@
+---
+title: "Skills: modular extensions for Mercury Agent"
+description: "Mercury skills are modular, installable instruction sets based on the Agent Skills spec. Install community skills or write your own SKILL.md to extend Mercury."
+---
+
+Skills are modular instruction sets that extend Mercury's capabilities without any code changes. Based on the [Agent Skills specification](https://agentskills.io), each skill is a `SKILL.md` file containing YAML frontmatter and markdown instructions that tell Mercury how to perform a specialized task. You can install community-published skills with a single sentence or author your own in minutes.
+
+## What a skill looks like
+
+A skill is a directory inside `~/.mercury/skills/` containing a `SKILL.md` file. The file starts with a YAML frontmatter block — bounded by `---` delimiters — that declares the skill's metadata. Everything after the closing `---` is the markdown body: natural language instructions Mercury follows when the skill is invoked.
+
+```markdown
+---
+name: daily-digest
+description: Send a daily summary of activity
+version: 0.1.0
+allowed-tools:
+  - read_file
+  - list_dir
+  - run_command
+---
+
+# Daily Digest
+
+Instructions for Mercury to follow when this skill is invoked...
+```
+
+The frontmatter fields map directly to the `SkillMeta` interface in Mercury's source:
+
+```typescript
+interface SkillMeta {
+  name: string;
+  description: string;
+  version?: string;
+  'allowed-tools'?: string[];
+  'disable-model-invocation'?: boolean;
+}
+```
+
+## Skills directory layout
+
+All skills live under `~/.mercury/skills/`. Each skill gets its own subdirectory named after the skill. Two optional subdirectories — `scripts/` and `references/` — let you bundle executable scripts and reference documents alongside the instructions.
+
+```
+~/.mercury/skills/
+├── daily-digest/
+│   └── SKILL.md
+├── code-review/
+│   ├── SKILL.md
+│   ├── scripts/
+│   └── references/
+└── _template/
+    └── SKILL.md
+```
+
+<Note>
+  Directories starting with `_` are ignored during skill discovery. The `_template/` directory is seeded automatically on first run and is safe to copy as a starting point.
+</Note>
+
+## Progressive disclosure
+
+Mercury loads skills in two stages to keep the system prompt small and token usage low.
+
+**At startup**, `SkillLoader.discover()` scans `~/.mercury/skills/`, reads only the YAML frontmatter from each `SKILL.md`, and stores a lightweight `SkillDiscovery` record for each skill:
+
+```typescript
+interface SkillDiscovery {
+  name: string;
+  description: string;
+}
+```
+
+These summaries — name and description only — are injected into the system prompt as a compact list. Full instructions are never loaded at startup.
+
+**On invocation**, when you ask Mercury to use a skill, it calls `use_skill`, which reads the full `SKILL.md` and injects the complete instructions into the active context. This keeps the system prompt small across all your conversations while making the full depth of any skill available on demand.
+
+## The three skill tools
+
+Mercury ships with three built-in tools for managing skills. They require no special permissions.
+
+<CardGroup cols={3}>
+  <Card title="install_skill" icon="download">
+    Install a new skill from a URL or by pasting `SKILL.md` content directly. Mercury fetches, validates, and saves the skill to `~/.mercury/skills/`.
+  </Card>
+  <Card title="list_skills" icon="list">
+    Show all installed skills with their names and descriptions. Equivalent to running `/skills` in chat.
+  </Card>
+  <Card title="use_skill" icon="play">
+    Load a skill's full instructions into the current context and elevate tool permissions according to its `allowed-tools` list.
+  </Card>
+</CardGroup>
+
+## Skills and the scheduler
+
+Skills integrate with Mercury's cron scheduler. When you schedule a task with a `skill_name`, Mercury automatically invokes that skill via `use_skill` each time the task fires — with no manual intervention required.
+
+```
+Tell Mercury: "Run the daily-digest skill every morning at 8am"
+```
+
+Mercury creates a scheduled task with `skill_name: daily-digest` and a cron expression of `0 8 * * *`. On each trigger, it calls `use_skill` internally, loads the full instructions, and runs the skill silently in the agent loop.
+
+<Tip>
+  Scheduled skills run without producing a visible channel response. They execute silently in Mercury's agentic loop, which makes them well-suited for background tasks like digests, reports, and housekeeping.
+</Tip>
+
+To learn more, see [Installing skills](/skills/installing) and [Authoring a custom skill](/skills/authoring).

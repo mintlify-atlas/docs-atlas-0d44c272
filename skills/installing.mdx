@@ -1,0 +1,142 @@
+---
+title: "Installing and invoking Mercury Agent skills"
+description: "Install Mercury Agent skills from a URL or by pasting SKILL.md content. List installed skills with /skills and invoke them by name with use_skill."
+---
+
+Installing a skill is as simple as telling Mercury where to find it. Mercury handles fetching, validating, and saving the skill to `~/.mercury/skills/` — you don't need to touch the filesystem directly. Once installed, skills are discovered automatically the next time Mercury starts, and you can invoke them by name at any point during a conversation.
+
+## Install a skill from a URL
+
+The most common way to install a community skill is to give Mercury a URL pointing to a raw `SKILL.md` file.
+
+<Steps>
+  <Step title="Ask Mercury to install the skill">
+    In any conversation, tell Mercury the URL:
+
+    ```
+    Install the daily-digest skill from https://example.com/skills/daily-digest/SKILL.md
+    ```
+
+    Mercury calls the `install_skill` tool with the `url` parameter, fetches the file, and validates it.
+  </Step>
+  <Step title="Mercury confirms installation">
+    If the skill has valid frontmatter, Mercury saves it to `~/.mercury/skills/<name>/` and replies:
+
+    ```
+    Skill "daily-digest" installed to ~/.mercury/skills/daily-digest.
+    Use list_skills to see all installed skills, or use_skill to invoke it.
+    ```
+  </Step>
+  <Step title="Verify the installation">
+    Ask Mercury to list your skills, or use the `/skills` in-chat command:
+
+    ```
+    /skills
+    ```
+
+    Mercury responds with a table of every installed skill's name and description.
+  </Step>
+</Steps>
+
+## Install a skill by pasting content
+
+If you have a `SKILL.md` file locally or want to install a skill without a hosted URL, paste the content directly into the conversation.
+
+```
+Install this skill:
+
+---
+name: code-review
+description: Review code for bugs, style issues, and security concerns
+version: 1.0.0
+allowed-tools:
+  - read_file
+  - list_dir
+---
+
+# Code Review
+
+When invoked, read the files specified by the user and provide structured feedback...
+```
+
+Mercury calls `install_skill` with the `content` parameter instead of `url`. The validation and save flow is identical.
+
+<Warning>
+  The content must include valid YAML frontmatter with at least `name` and `description` fields. Missing or malformed frontmatter causes installation to fail with a descriptive error.
+</Warning>
+
+## The install_skill tool
+
+Mercury's `install_skill` tool accepts two parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `url` | `string` (optional) | URL to fetch a `SKILL.md` from |
+| `content` | `string` (optional) | Raw `SKILL.md` markdown with YAML frontmatter |
+
+You must provide exactly one of `url` or `content`. The tool validates the frontmatter, checks for required `name` and `description` fields, saves the skill directory to `~/.mercury/skills/`, and re-runs skill discovery so the new skill is immediately available.
+
+## The list_skills tool
+
+`list_skills` returns a summary of every installed skill. It reads from the in-memory discovery index built by `SkillLoader.discover()` — the same lightweight `SkillDiscovery` records that are loaded at startup. No full instructions are read.
+
+You can trigger it by asking Mercury:
+
+```
+What skills do I have installed?
+```
+
+Or use the `/skills` in-chat command, which produces the same output without consuming any API tokens:
+
+```
+/skills
+```
+
+<Info>
+  `/skills` is a zero-token command — it reads from Mercury's in-memory skill registry and responds immediately, without sending a request to the LLM.
+</Info>
+
+## The use_skill tool
+
+`use_skill` loads a skill's full instructions on demand and injects them into the active context. It also elevates tool permissions according to the skill's `allowed-tools` list for the duration of the invocation.
+
+```
+Use the daily-digest skill
+```
+
+Mercury calls `use_skill` with `name: "daily-digest"`, loads the complete `SKILL.md`, and follows the instructions. If the skill declares `allowed-tools`, those tools are temporarily elevated via the `PermissionManager` — Mercury gains access to exactly those tools, and no others, for the current task.
+
+## Skill discovery at startup
+
+When Mercury starts, `SkillLoader.discover()` scans every non-underscore directory in `~/.mercury/skills/`, reads only the YAML frontmatter of each `SKILL.md`, and registers a `SkillDiscovery` record. The full markdown body is never loaded at this stage.
+
+The resulting list of names and descriptions is summarized into the system prompt:
+
+```
+Available skills:
+- daily-digest: Send a daily summary of activity
+- code-review: Review code for bugs, style issues, and security concerns
+```
+
+This keeps startup token cost minimal regardless of how many skills you have installed or how long their instructions are.
+
+## Example conversation
+
+```
+You:     Install the daily-digest skill from https://agentskills.io/skills/daily-digest/SKILL.md
+
+Mercury: Fetching skill from URL...
+         Skill "daily-digest" installed to ~/.mercury/skills/daily-digest.
+         Use list_skills to see all installed skills, or use_skill to invoke it.
+
+You:     /skills
+
+Mercury: daily-digest: Send a daily summary of activity
+         code-review: Review code for bugs, style issues, and security concerns
+
+You:     Run the daily-digest skill
+
+Mercury: [Loads full instructions and executes the skill]
+```
+
+To learn how to write your own skill, see [Authoring a custom skill](/skills/authoring).

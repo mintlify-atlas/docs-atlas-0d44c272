@@ -1,0 +1,233 @@
+---
+title: "Web, skills, and scheduler tools reference"
+description: "Reference for Mercury's fetch_url, skill tools (install_skill, use_skill), scheduler tools (schedule_task, cancel_scheduled_task), and send_message."
+---
+
+This page covers four groups of tools that extend Mercury's reach beyond the local filesystem: web fetching, the skills system for modular instruction sets, the scheduler for recurring and delayed tasks, and messaging and system utilities. Unlike filesystem and shell tools, none of these tools require scope approval — they are available unconditionally when their respective subsystems are configured.
+
+---
+
+## Web tools
+
+### fetch_url
+
+Fetch a URL and return its content as readable text. HTML pages are stripped of scripts, styles, navigation, and headers, then converted to a markdown-like format. JSON responses are pretty-printed. All other content types are returned as-is. Responses are truncated at 15,000 characters.
+
+The tool sends a 15-second timeout. If the server does not respond in time, the tool returns a timeout error rather than hanging.
+
+<ParamField path="url" type="string" required>
+  The URL to fetch. Must be a fully-formed URL including the scheme (e.g., `https://`).
+</ParamField>
+
+<ParamField path="format" type='"text" | "markdown"'>
+  Output format for HTML content. `"markdown"` (default) strips and converts HTML. `"text"` returns raw content without conversion.
+</ParamField>
+
+**Permission:** no restriction. `fetch_url` is always registered regardless of capability flags.
+
+```text Example
+fetch_url({ url: "https://api.github.com/repos/vercel/ai/releases/latest" })
+fetch_url({ url: "https://docs.example.com/api", format: "markdown" })
+```
+
+<Note>
+`fetch_url` is suitable for documentation pages, REST APIs, and plain-text content. It is not a browser — it does not execute JavaScript. For JavaScript-rendered pages, results may be incomplete.
+</Note>
+
+---
+
+## Skills tools
+
+Mercury's skills system lets you install modular instruction sets — called skills — that extend what Mercury knows how to do without changing any code. Each skill is a `SKILL.md` file with YAML frontmatter and markdown instructions. Skills are stored in `~/.mercury/skills/`.
+
+At startup, Mercury loads only skill names and descriptions (token-efficient). Full instructions are loaded on demand when `use_skill` is called — this is called progressive disclosure.
+
+<Info>
+See [Skills overview](/skills/overview) for the `SKILL.md` format, frontmatter fields, and how to author your own skills.
+</Info>
+
+### install_skill
+
+Install a new skill by providing its `SKILL.md` content directly or a URL to fetch it from. The content must have valid YAML frontmatter with at least `name` and `description` fields.
+
+<ParamField path="content" type="string">
+  Raw `SKILL.md` markdown content, including the `---` frontmatter delimiters. Either `content` or `url` must be provided.
+</ParamField>
+
+<ParamField path="url" type="string">
+  A URL to fetch the `SKILL.md` from. Mercury fetches the URL and uses the response body as the skill content. Either `content` or `url` must be provided.
+</ParamField>
+
+**Permission:** no restriction.
+
+```text Example: install from content
+install_skill({
+  content: "---\nname: code-review\ndescription: Review PRs for style and correctness\n---\n\n# Code Review\n\nWhen invoked, review the diff..."
+})
+```
+
+```text Example: install from URL
+install_skill({
+  url: "https://raw.githubusercontent.com/acme/mercury-skills/main/daily-digest/SKILL.md"
+})
+```
+
+<Warning>
+Both `content` and `url` cannot be provided at the same time. If `url` is provided and `content` is omitted, Mercury fetches the URL. If only `content` is provided, the URL is ignored.
+</Warning>
+
+### list_skills
+
+List all installed skills with their names and descriptions. Returns one line per skill in `name: description` format.
+
+This tool takes no parameters.
+
+**Permission:** no restriction.
+
+```text Example
+list_skills({})
+```
+
+### use_skill
+
+Load and invoke a skill by name. Returns the skill's full instructions, which Mercury follows as guidance for the current task. If the skill declares `allowed-tools` in its frontmatter, those tools are elevated for the duration of the skill invocation.
+
+<ParamField path="name" type="string" required>
+  The name of the skill to invoke, as it appears in `list_skills` output.
+</ParamField>
+
+**Permission:** no restriction.
+
+```text Example
+use_skill({ name: "daily-digest" })
+use_skill({ name: "code-review" })
+```
+
+<Tip>
+Call `list_skills` first if you are not sure of the exact skill name. Skill names are case-sensitive and must match the `name` field in the skill's frontmatter.
+</Tip>
+
+---
+
+## Scheduler tools
+
+Mercury's scheduler lets you set up recurring tasks (cron) and one-shot delayed tasks. Schedules persist to `~/.mercury/schedules.yaml` and are restored when Mercury restarts. When a task fires, Mercury either processes a prompt as an internal message or invokes a named skill.
+
+<Info>
+Scheduled tasks run silently in the agent loop — they do not produce visible channel output unless the task's prompt or skill explicitly calls `send_message` or another outbound tool.
+</Info>
+
+### schedule_task
+
+Schedule a recurring or one-shot task. Provide exactly one of `cron` or `delay_seconds` to specify when the task fires. Provide exactly one of `prompt` or `skill_name` to specify what the task does.
+
+<ParamField path="cron" type="string">
+  Standard 5-field cron expression for recurring tasks (minute hour day month weekday). Validated with `node-cron` before saving. Examples: `"0 9 * * *"` (daily at 9 am), `"*/15 * * * *"` (every 15 minutes).
+</ParamField>
+
+<ParamField path="delay_seconds" type="number">
+  Delay in seconds for a one-shot task that fires once and is then removed. Example: `15` fires in 15 seconds.
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Human-readable description of what this task does. Shown in `list_scheduled_tasks` output.
+</ParamField>
+
+<ParamField path="prompt" type="string">
+  Text prompt to send to the agent when the task fires. Either `prompt` or `skill_name` is required.
+</ParamField>
+
+<ParamField path="skill_name" type="string">
+  Name of an installed skill to invoke when the task fires. Either `prompt` or `skill_name` is required.
+</ParamField>
+
+**Permission:** no restriction. Cron expressions are validated — invalid expressions are rejected with an error message.
+
+```text Example: daily cron task
+schedule_task({
+  cron: "0 9 * * *",
+  description: "Morning digest",
+  skill_name: "daily-digest"
+})
+```
+
+```text Example: one-shot reminder
+schedule_task({
+  delay_seconds: 1800,
+  description: "Remind about standup in 30 minutes",
+  prompt: "Remind the user that standup starts in 5 minutes."
+})
+```
+
+<Warning>
+Cron expressions must use the standard 5-field format (minute hour day-of-month month day-of-week). Seconds are not supported. An invalid expression returns an error and the task is not saved.
+</Warning>
+
+### list_scheduled_tasks
+
+List all currently scheduled tasks. Returns one line per task showing the task ID, cron expression or delay, description, and trigger type (prompt or skill).
+
+This tool takes no parameters.
+
+**Permission:** no restriction.
+
+```text Example
+list_scheduled_tasks({})
+```
+
+Output format per task:
+```text
+{id} | {cron} | {description} | {prompt: "..." or skill: name}
+```
+
+### cancel_scheduled_task
+
+Cancel and permanently remove a scheduled task by its ID. The task stops firing immediately and is removed from `~/.mercury/schedules.yaml`.
+
+<ParamField path="id" type="string" required>
+  The ID of the scheduled task to cancel. Get IDs from `list_scheduled_tasks`.
+</ParamField>
+
+**Permission:** no restriction.
+
+```text Example
+cancel_scheduled_task({ id: "task-lx3k9a2" })
+```
+
+---
+
+## Messaging and system tools
+
+### send_message
+
+Send a proactive message through the configured outbound channel. On Telegram this sends to the approved recipients. On the CLI this prints the message to the terminal. Use this only when the user explicitly asks Mercury to send something to Telegram, or when a scheduled task needs to surface a result.
+
+<ParamField path="content" type="string" required>
+  The message content to send. Cannot be empty.
+</ParamField>
+
+**Permission:** no restriction, but the tool is only registered when an outbound message handler is configured (i.e., when Mercury is running in a channel that supports proactive messaging, such as Telegram).
+
+```text Example
+send_message({ content: "Your daily digest is ready. Here is a summary of today's activity..." })
+```
+
+<Warning>
+`send_message` sends to the approved Telegram recipients as configured in your Mercury setup. Do not use it for sensitive content unless you have verified who the recipients are. See [Telegram setup](/channels/telegram) for recipient configuration.
+</Warning>
+
+### budget_status
+
+Check the current token budget usage — how many tokens have been used today, how many remain, and what percentage is consumed. Useful for understanding how much capacity is left before Mercury's daily limit is reached.
+
+This tool takes no parameters.
+
+**Permission:** no restriction. Only registered when a `TokenBudget` instance is configured.
+
+```text Example
+budget_status({})
+```
+
+<Info>
+Mercury's default daily token budget is 50,000 tokens. The budget resets each day. See [Token budget](/features/token-budget) for configuration options.
+</Info>

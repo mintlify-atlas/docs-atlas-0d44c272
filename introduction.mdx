@@ -1,0 +1,128 @@
+---
+title: "Mercury Agent: soul-driven AI agent overview"
+description: "Mercury is a permission-hardened AI agent with 31 tools, token budgets, and multi-channel access via CLI and Telegram. Learn what makes it different."
+---
+
+Mercury is an AI agent that runs on your machine, connects to LLMs, and carries out multi-step tasks through 31 built-in tools — all while asking permission before it acts. Unlike typical AI wrappers that execute silently, Mercury treats your filesystem, shell, and data as things worth protecting. It is built around a strict permission system, a configurable personality, and a token budget, and it runs 24/7 through the CLI or Telegram.
+
+## What makes Mercury different
+
+Most AI agents can read files, run commands, and fetch URLs. Mercury does all of that — and then asks first.
+
+<CardGroup cols={2}>
+  <Card title="Permission-hardened" icon="shield-halved" href="/features/permissions">
+    Shell blocklist (`sudo`, `rm -rf /`, and more never execute). Folder-level read/write scoping. Inline approval flow. Capabilities saved to `~/.mercury/permissions.yaml`. No silent actions.
+  </Card>
+  <Card title="Soul-driven" icon="heart" href="/configuration">
+    Personality defined by markdown files you own: `soul.md`, `persona.md`, `taste.md`, and `heartbeat.md`. No corporate wrapper, no locked-in persona.
+  </Card>
+  <Card title="Token-aware" icon="coins" href="/features/token-budget">
+    Daily budget enforcement. Mercury becomes concise automatically when over 70% of budget. Use `/budget` to check usage, reset, or override.
+  </Card>
+  <Card title="Multi-channel" icon="comments" href="/channels/cli">
+    CLI with real-time text streaming. Telegram with HTML formatting, file uploads, and typing indicators — including multi-user access with admin and member roles.
+  </Card>
+  <Card title="Always on" icon="circle-check" href="/daemon/overview">
+    Run as a background daemon with auto-restart on crash (exponential backoff, up to 10 restarts per minute). Starts on boot via macOS LaunchAgent, Linux systemd, or Windows Task Scheduler.
+  </Card>
+  <Card title="Extensible" icon="puzzle-piece" href="/skills/overview">
+    Install community skills with one command. Schedule skills as recurring tasks with cron expressions. Based on the Agent Skills specification.
+  </Card>
+</CardGroup>
+
+## Architecture overview
+
+Mercury is built on TypeScript and Node.js 20+, using the Vercel AI SDK v4 for its agentic loop. It is structured around four major layers:
+
+<CardGroup cols={2}>
+  <Card title="Core agent loop" icon="arrows-spin">
+    `src/core/agent.ts` runs a multi-step `generateText()` loop with up to 10 steps per request. The LLM decides whether to respond or call a tool — and the loop continues until a final text response is produced.
+  </Card>
+  <Card title="Capabilities and permissions" icon="lock">
+    `src/capabilities/` registers all 31 tools. `src/capabilities/permissions.ts` enforces folder-level scoping and the shell blocklist before any tool executes.
+  </Card>
+  <Card title="Channels" icon="satellite-dish">
+    `src/channels/` provides abstract channel adapters. `cli.ts` handles readline input and inline permission prompts. `telegram.ts` manages the grammY bot, streaming, and file uploads.
+  </Card>
+  <Card title="Soul and memory" icon="brain">
+    `src/soul/identity.ts` loads the soul files that define Mercury's personality and system prompt. `src/memory/store.ts` maintains short-term, episodic, and long-term memory across sessions.
+  </Card>
+</CardGroup>
+
+### The agentic loop in detail
+
+```
+User message → agent loads system prompt (soul + guardrails + persona)
+  → generateText({ tools, maxSteps: 10 })
+    → LLM decides: text response OR tool call
+      → Tool call: permission check → execute → return result to LLM
+      → LLM continues (may call more tools, or produce final response)
+  → Final response sent to user via channel
+```
+
+<Note>
+  Mercury's tools are registered in `src/capabilities/registry.ts`. All tool calls pass through the permission manager before execution — denied calls return a denial message to the LLM so it can adjust its approach.
+</Note>
+
+### The human analogy
+
+Mercury's architecture maps intentionally to human concepts:
+
+| Mercury concept | Human analogy | Source location |
+|---|---|---|
+| `soul.md` | Heart | `~/.mercury/soul/soul.md` |
+| `persona.md` | Face | `~/.mercury/soul/persona.md` |
+| `taste.md` | Palate | `~/.mercury/soul/taste.md` |
+| `heartbeat.md` | Breathing | `~/.mercury/soul/heartbeat.md` |
+| Short-term memory | Working memory | `src/memory/store.ts` |
+| Episodic memory | Recent experiences | `src/memory/store.ts` |
+| Long-term memory | Life lessons | `src/memory/store.ts` |
+| Providers | Senses | `src/providers/` |
+| Capabilities | Hands and tools | `src/capabilities/` |
+| Permissions | Boundaries | `src/capabilities/permissions.ts` |
+| Channels | Communication | `src/channels/` |
+| Scheduler | Circadian rhythm | `src/core/scheduler.ts` |
+
+## Agent lifecycle
+
+Mercury progresses through a state machine for each interaction:
+
+```
+unborn → birthing → onboarding → idle ⇄ thinking → responding → idle
+                                                         ↓
+                                           idle → sleeping → awakening → idle
+```
+
+<Tip>
+  The lifecycle state is managed in `src/core/lifecycle.ts`. In daemon mode, Mercury moves between idle and sleeping states according to the heartbeat schedule — waking to send proactive messages or run scheduled tasks.
+</Tip>
+
+## Supported channels
+
+| Channel | Key features |
+|---------|-------------|
+| **CLI** | Readline prompt, arrow-key command menus, real-time text streaming, markdown rendering, inline permission prompts |
+| **Telegram** | HTML formatting, file uploads, typing indicators, multi-user access with admin/member roles, proactive heartbeat messages |
+
+## Built-in tools
+
+Mercury ships with 31 tools across 8 categories:
+
+| Category | Tools |
+|----------|-------|
+| **Filesystem** | `read_file`, `write_file`, `create_file`, `edit_file`, `list_dir`, `delete_file`, `send_file`, `approve_scope` |
+| **Shell** | `run_command`, `cd`, `approve_command` |
+| **Messaging** | `send_message` |
+| **Git** | `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`, `git_push` |
+| **Web** | `fetch_url` |
+| **Skills** | `install_skill`, `list_skills`, `use_skill` |
+| **Scheduler** | `schedule_task`, `list_scheduled_tasks`, `cancel_scheduled_task` |
+| **System** | `budget_status` |
+
+## Flat-file persistence
+
+Mercury uses no database. All runtime data lives in `~/.mercury/` as YAML and JSON files. This means your configuration, soul files, memory, and permissions are plain text you can read, edit, and back up at any time.
+
+<Info>
+  See [Configuration](/configuration) for the full list of files in `~/.mercury/` and what each one controls.
+</Info>

@@ -1,0 +1,147 @@
+---
+title: "Scheduler: cron tasks and recurring automation"
+description: "Mercury's scheduler lets you create recurring cron tasks and one-shot delayed tasks using natural language or cron expressions, persisted across restarts."
+---
+
+Mercury's scheduler lets you automate recurring work without leaving the conversation. Ask Mercury to run a daily digest, trigger a skill on a schedule, or fire a one-shot reminder after a delay — all from chat. Scheduled tasks survive restarts and are automatically restored from `~/.mercury/schedules.yaml` when Mercury comes back online.
+
+## Task types
+
+### Recurring cron tasks
+
+Recurring tasks use standard **5-field cron expressions**. Mercury validates the expression using `node-cron` before saving the task.
+
+```
+┌───────── minute (0–59)
+│ ┌─────── hour (0–23)
+│ │ ┌───── day of month (1–31)
+│ │ │ ┌─── month (1–12)
+│ │ │ │ ┌─ day of week (0–6, Sunday=0)
+│ │ │ │ │
+* * * * *
+```
+
+```bash
+# Daily at 9am
+0 9 * * *
+
+# Every weekday at 8am
+0 8 * * 1-5
+
+# Every hour
+0 * * * *
+
+# Every 15 minutes
+*/15 * * * *
+```
+
+### One-shot delayed tasks
+
+One-shot tasks use `delay_seconds` instead of a cron expression. Mercury schedules them as a `setTimeout` internally. If Mercury restarts before the delay expires, it recalculates the remaining delay from the saved `executeAt` timestamp and reschedules the task. Tasks whose `executeAt` is already in the past are discarded on restore.
+
+```
+schedule_task with delay_seconds=300 and prompt="Send the deployment summary"
+```
+
+## Task fields
+
+Each scheduled task is stored as a `ScheduledTaskManifest`:
+
+```typescript
+export interface ScheduledTaskManifest {
+  id: string;
+  cron?: string;
+  description: string;
+  skillName?: string;
+  prompt?: string;
+  delaySeconds?: number;
+  executeAt?: string;
+  createdAt: string;
+  sourceChannelId?: string;
+  sourceChannelType?: string;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique task identifier |
+| `cron` | string (optional) | Standard 5-field cron expression |
+| `description` | string | Human-readable label shown in `list_scheduled_tasks` |
+| `prompt` | string (optional) | Text sent to the agent when the task fires |
+| `skillName` | string (optional) | Skill to invoke when the task fires |
+| `delaySeconds` | number (optional) | Seconds until a one-shot task fires |
+| `executeAt` | string (optional) | ISO timestamp for one-shot task target time |
+| `createdAt` | string | ISO timestamp when the task was created |
+| `sourceChannelId` | string (optional) | Channel ID to route responses back to |
+| `sourceChannelType` | string (optional) | Channel type (`"cli"`, `"telegram"`) |
+
+## How tasks execute
+
+When a scheduled task fires, Mercury processes it based on which fields are set:
+
+<Steps>
+  <Step title="Skill invocation">
+    If `skillName` is set, Mercury is prompted to invoke that skill via the `use_skill` tool. The skill's full instructions are loaded into the agent context and executed.
+  </Step>
+  <Step title="Prompt execution">
+    If `prompt` is set (and no `skillName`), Mercury processes the prompt as an internal non-channel message — running the full agentic loop without producing a visible response in any channel.
+  </Step>
+</Steps>
+
+<Note>
+Scheduled tasks run silently inside the agent loop. They do not produce visible output in your terminal or Telegram chat unless the task's prompt or skill explicitly uses `send_message` to route a response back to a channel.
+</Note>
+
+## Scheduler tools
+
+<CardGroup cols={3}>
+  <Card title="schedule_task" icon="clock">
+    Create a recurring cron task or a one-shot delayed task. Provide a `cron` expression or `delay_seconds`, plus a `prompt` or `skill_name`.
+  </Card>
+  <Card title="list_scheduled_tasks" icon="list">
+    List all currently scheduled tasks with their IDs, cron expressions, descriptions, and next-run times.
+  </Card>
+  <Card title="cancel_scheduled_task" icon="x">
+    Cancel a scheduled task by ID. Stops the cron timer or clears the delay timeout and removes the task from `schedules.yaml`.
+  </Card>
+</CardGroup>
+
+## Persistence and restore
+
+Tasks are saved to `~/.mercury/schedules.yaml` after every change. On startup, `Scheduler.restorePersistedTasks()` reads this file and re-registers all valid tasks:
+
+```yaml
+tasks:
+  - id: abc123def
+    cron: 0 9 * * *
+    description: Daily standup digest
+    prompt: Summarize yesterday's git commits and open issues
+    createdAt: "2026-04-22T08:00:00.000Z"
+    sourceChannelType: telegram
+    sourceChannelId: "123456789"
+```
+
+Tasks with invalid cron expressions are skipped with a warning. One-shot tasks whose `executeAt` is already past are discarded rather than fired immediately.
+
+## Example: daily digest at 9am
+
+Ask Mercury in chat:
+
+> "Schedule a daily digest every morning at 9am that summarizes my git commits from the past 24 hours."
+
+Mercury will call `schedule_task` with approximately:
+
+```json
+{
+  "cron": "0 9 * * *",
+  "description": "Daily git commit digest",
+  "prompt": "Summarize all git commits from the past 24 hours across my repositories and send the summary.",
+  "skill_name": null
+}
+```
+
+The task is saved to `~/.mercury/schedules.yaml` immediately and will fire at 9am every day, even after restarts.
+
+## Response routing
+
+Tasks created from a specific channel have their `sourceChannelId` and `sourceChannelType` stored in the manifest. When the task fires and uses `send_message`, responses are routed back to the originating channel — so a task created in Telegram delivers its output to your Telegram chat.

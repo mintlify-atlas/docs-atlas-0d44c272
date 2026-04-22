@@ -1,0 +1,173 @@
+---
+title: "Shell tools: run commands with permission controls"
+description: "Mercury's shell tools run commands through a three-tier check: blocked patterns never execute, safe commands run freely, and others require your confirmation."
+---
+
+Mercury can run shell commands on your behalf, but every command passes through a three-tier permission check before execution. Dangerous commands are blocked unconditionally. A curated list of read-only commands runs immediately with no prompt. Everything else pauses for your confirmation. You can permanently approve a command type with `approve_command` to skip future prompts.
+
+All shell commands run in Mercury's current working directory (CWD), which starts as the process working directory and can be changed with the `cd` tool. Commands that try to escape the CWD via path traversal are still subject to filesystem scope checks.
+
+---
+
+## Permission tiers
+
+### Tier 1 — Blocked (never executed)
+
+These commands are rejected regardless of any approval. They cannot be unblocked.
+
+<Warning>
+Blocked commands are matched by prefix pattern. No form of user approval can execute them. If Mercury receives one of these, it returns an error immediately without prompting.
+</Warning>
+
+| Pattern | Reason |
+|---|---|
+| `sudo *` | Privilege escalation |
+| `rm -rf /` | Wipes root filesystem |
+| `rm -rf ~` | Wipes home directory |
+| `rm -rf /*` | Wipes root filesystem |
+| `mkfs *` | Formats a filesystem |
+| `dd if=*` | Low-level disk write |
+| `chmod 777 /` | Opens root permissions |
+| `chown * /` | Changes root ownership |
+| `:()\{ :\|:& \};:` | Fork bomb |
+| `shutdown *` | System shutdown |
+| `reboot *` | System reboot |
+| `halt *` | System halt |
+| `init 0` | System halt (SysV) |
+| `init 6` | System reboot (SysV) |
+| `kill -9 1` | Kill init/systemd |
+| `> /dev/sda` | Overwrites disk device |
+| `mv /* /dev/null` | Moves filesystem to null device |
+
+### Tier 2 — Auto-approved (no prompt required)
+
+These commands are considered safe and read-only. They execute immediately.
+
+| Pattern | Description |
+|---|---|
+| `ls *` | List directory contents |
+| `cat *` | Print file contents |
+| `pwd` | Print working directory |
+| `which *` | Locate a command |
+| `node *` | Run Node.js |
+| `npm run *` | Run an npm script |
+| `npm test *` | Run npm tests |
+| `npm list *` | List installed packages |
+| `git status *` | Show working tree status |
+| `git diff *` | Show changes |
+| `git log *` | Show commit history |
+| `git branch *` | List or manage branches |
+| `echo *` | Print text |
+| `head *` | Show first lines of a file |
+| `tail *` | Show last lines of a file |
+| `wc *` | Word/line count |
+| `find *` | Find files |
+| `grep *` | Search file contents |
+| `rg *` | Search with ripgrep |
+| `ps *` | List processes |
+| `df *` | Show disk usage |
+| `du *` | Show directory sizes |
+| `uname *` | Print system info |
+
+### Tier 3 — Needs approval (confirmation required)
+
+These commands can have significant side effects. Mercury pauses, explains what the command does, and asks for your permission before proceeding.
+
+| Pattern | Description |
+|---|---|
+| `npm publish *` | Publishes a package to npm |
+| `git push *` | Pushes commits to a remote |
+| `docker *` | Docker operations |
+| `curl * \| sh` | Pipe remote script to shell |
+| `curl * \| bash` | Pipe remote script to bash |
+| `wget * \| sh` | Pipe remote script to shell |
+| `pip install *` | Install Python packages |
+| `pip3 install *` | Install Python packages |
+| `rm -r *` | Recursive file removal |
+| `rm -rf *` | Force recursive file removal |
+| `mv *` | Move or rename files |
+| `cp -r *` | Recursive copy |
+| `chmod *` | Change file permissions |
+| `mkdir *` | Create directories |
+| `rmdir *` | Remove directories |
+
+<Info>
+You can permanently approve a command type by responding "always" when prompted, which calls `approve_command` internally. Approved commands are stored in the permissions manifest and persist across sessions.
+</Info>
+
+---
+
+## run_command
+
+Execute a shell command in the current working directory. The command passes through all three permission tiers before execution. Commands time out after 30 seconds and output is capped at 1 MB.
+
+<ParamField path="command" type="string" required>
+  The shell command to execute. Supports pipes, redirects, and chained commands with `&&`.
+</ParamField>
+
+**Permission:** blocked list check → auto-approved list check → user approval if neither matches.
+
+```text Example
+run_command({ command: "npm run build" })
+run_command({ command: "git log --oneline -5" })
+run_command({ command: "grep -r 'TODO' src/" })
+```
+
+<Note>
+Use the `cd` tool to change directory before running commands in a specific project folder. `cd` commands embedded in `run_command` (e.g., `cd /path && ls`) work for chained operations within that single call, but do not persist the directory for future calls.
+</Note>
+
+---
+
+## cd
+
+Change the current working directory. All subsequent file operations, shell commands, and git operations will use this directory until it is changed again.
+
+<ParamField path="path" type="string" required>
+  The directory to change to. Can be absolute or relative to the current working directory.
+</ParamField>
+
+**Permission:** the directory must exist and be accessible. No scope check is performed by `cd` itself, but subsequent operations will be subject to their normal scope checks.
+
+```text Example
+cd({ path: "/home/user/projects/myapp" })
+cd({ path: "../other-project" })
+```
+
+---
+
+## approve_command
+
+Permanently approve a command type so it runs without confirmation in future calls. This is typically called automatically when you respond "always" to an approval prompt, but can also be called directly.
+
+<ParamField path="command" type="string" required>
+  The base command to permanently approve (e.g., `"curl"`, `"docker"`, `"npm"`). Only the first token is used — arguments are not part of the approval.
+</ParamField>
+
+**Permission:** no restriction.
+
+```text Example
+approve_command({ command: "curl" })
+approve_command({ command: "docker" })
+```
+
+<Warning>
+Permanently approved commands bypass the needs-approval check for all future invocations of that base command. Blocked commands cannot be approved and will still be rejected.
+</Warning>
+
+## CWD scoping
+
+The current working directory (CWD) acts as an implicit boundary for shell operations. Commands run with `cwd` set to Mercury's tracked CWD, which means relative paths in commands resolve correctly without needing to prefix everything with an absolute path.
+
+Use `cd` to set the working directory once at the start of a task rather than repeating full paths in every command:
+
+```text Pattern: set CWD once, then run commands
+cd({ path: "/home/user/projects/myapp" })
+run_command({ command: "npm install" })
+run_command({ command: "npm run build" })
+run_command({ command: "npm test" })
+```
+
+<Info>
+See [Permissions](/features/permissions) for the full permission manifest format and how to configure pre-approved commands at startup.
+</Info>

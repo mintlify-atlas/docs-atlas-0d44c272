@@ -1,0 +1,76 @@
+---
+title: "Daemon mode: keep Mercury Agent running 24/7"
+description: "Mercury daemon mode runs the agent as a background process with watchdog crash recovery. Use mercury up to start, stop, and restart from anywhere."
+---
+
+Daemon mode lets Mercury run as a persistent background process — independent of any terminal window. Once started, it handles Telegram messages, fires scheduled tasks, and runs heartbeat checks without you needing to keep a shell open. If it crashes, the built-in watchdog restarts it automatically.
+
+<Tip>
+  `mercury up` is the recommended way to start daemon mode. It installs the system service if one isn't already installed, starts the background process, and confirms Mercury is running with its PID — all in one command.
+</Tip>
+
+## How `mercury up` works
+
+Running `mercury up` performs three steps in sequence:
+
+<Steps>
+  <Step title="Check for an existing system service">
+    If no system service is installed, `mercury up` installs one for your platform (macOS LaunchAgent, Linux systemd user unit, or Windows Task Scheduler). This ensures Mercury starts automatically on your next login. See [System service](/daemon/system-service) for details.
+  </Step>
+  <Step title="Start the background daemon">
+    Mercury spawns a detached child process and redirects its output to `~/.mercury/daemon.log`. The PID is written to `~/.mercury/daemon.pid` so other commands can track and manage the process.
+  </Step>
+  <Step title="Confirm and report">
+    Once the daemon is running, `mercury up` prints the PID and log file path. If Mercury is already running, it just confirms that and exits — no duplicate processes.
+  </Step>
+</Steps>
+
+## Daemon commands
+
+| Command | What it does |
+|---------|-------------|
+| `mercury up` | Install system service (if needed) + start daemon + confirm running |
+| `mercury start -d` | Start in background without installing the system service |
+| `mercury restart` | Stop and restart the background process |
+| `mercury stop` | Stop the background process |
+| `mercury logs` | Print the last 100 lines of the daemon log |
+| `mercury status` | Show whether the daemon is running and its PID |
+
+## Files
+
+Mercury stores daemon state in your home directory:
+
+| Path | Purpose |
+|------|---------|
+| `~/.mercury/daemon.pid` | PID of the running background process |
+| `~/.mercury/daemon.log` | Combined stdout and stderr from the daemon |
+
+You can tail the log at any time:
+
+```bash
+mercury logs
+```
+
+Or watch it directly:
+
+```bash
+tail -f ~/.mercury/daemon.log
+```
+
+## Crash recovery (watchdog)
+
+In daemon mode, Mercury wraps the agent loop in a watchdog that catches crashes and restarts automatically. The watchdog uses exponential backoff to avoid hammering a failing system:
+
+- **Base delay**: 1 second
+- **Multiplier**: 1.25× per restart
+- **Limit**: 10 restarts within any 60-second window — if that limit is exceeded, the daemon exits
+
+This means a sequence of rapid crashes produces delays of approximately 1s, 1.25s, 1.56s, 1.95s, and so on. The watchdog only activates in daemon mode (`--daemon` flag); foreground runs do not use it.
+
+## CLI behavior in daemon mode
+
+<Note>
+  When Mercury runs as a daemon, the CLI becomes log-only — there is no terminal attached for interactive input. Telegram (or another remote channel) is your interactive interface while the daemon is running. Use `mercury logs` or `tail -f ~/.mercury/daemon.log` to follow output.
+</Note>
+
+To interact with Mercury while the daemon is running, use your configured [Telegram](/channels/telegram) bot. All conversation, tool use, and scheduling works exactly as in foreground mode — the difference is that no terminal is required.

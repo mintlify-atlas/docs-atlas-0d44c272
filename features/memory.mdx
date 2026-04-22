@@ -1,0 +1,131 @@
+---
+title: "Memory: short-term, long-term, and episodic"
+description: "Mercury keeps three memory tiers: short-term context, long-term keyword-matched facts, and episodic events — all stored as flat files in ~/.mercury/memory/."
+---
+
+Mercury maintains three independent memory stores, each serving a different purpose in the agent's cognitive model. Short-term memory holds the active conversation context. Long-term memory accumulates facts that persist across conversations and are retrieved by keyword matching. Episodic memory records significant events and interactions over time. All three stores use flat-file persistence — no database required.
+
+## Storage location
+
+All memory files live under `~/.mercury/memory/`:
+
+```
+~/.mercury/memory/
+├── short-term/
+│   └── <conversationId>.json    # One file per conversation
+├── long-term/
+│   └── facts.jsonl              # Append-only fact log
+└── episodic/
+    └── events.jsonl             # Append-only event log
+```
+
+## Short-term memory
+
+Short-term memory stores the working conversation context — the recent message history that is included in every request to the LLM. It is bounded to the last N messages (default: 10) to keep context size predictable and per-request token cost stable.
+
+Each message is stored as a `MemoryEntry`:
+
+```typescript
+export interface MemoryEntry {
+  id: string;
+  timestamp: number;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  tokenCount?: number;
+  metadata?: Record<string, unknown>;
+}
+```
+
+Short-term memory is stored as JSON per conversation (`~/.mercury/memory/short-term/<conversationId>.json`). When the message count exceeds the configured maximum, the oldest entries are dropped from the in-memory array and the file is rewritten. This windowing keeps the file size bounded regardless of how long a conversation runs.
+
+<Tip>
+Short-term memory is scoped per conversation ID, so parallel conversations (e.g., CLI and Telegram simultaneously) maintain separate contexts without interference.
+</Tip>
+
+## Long-term memory
+
+Long-term memory stores facts that Mercury has learned or been told — things that should persist across conversations and sessions. Facts are retrieved by keyword matching at request time, with up to 3 relevant facts injected into the system prompt per request.
+
+Each fact is stored as a `LongTermFact`:
+
+```typescript
+export interface LongTermFact {
+  id: string;
+  timestamp: number;
+  topic: string;
+  fact: string;
+  source: string;
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique identifier (base-36 timestamp + random suffix) |
+| `timestamp` | Unix millisecond timestamp when the fact was recorded |
+| `topic` | Short label for the subject area (e.g., `"project"`, `"user"`) |
+| `fact` | The fact content as a string |
+| `source` | Where the fact came from (e.g., `"user"`, `"conversation"`) |
+
+### Retrieval
+
+When building a request, Mercury calls `LongTermMemory.search(query)` with the current message as the query. The search splits the query into terms and returns facts whose `topic + fact` text contains any of those terms. Up to 3 matching facts are injected into the context.
+
+```typescript
+search(query: string, limit: number = 5): LongTermFact[]
+```
+
+Long-term facts are stored as JSONL at `~/.mercury/memory/long-term/facts.jsonl`. New facts are appended; the file is never rewritten during normal operation.
+
+## Episodic memory
+
+Episodic memory records notable events in Mercury's operation — completed tasks, errors, skill invocations, channel interactions, and other occurrences worth remembering. Unlike long-term facts (which are declarative), episodic events are temporal records of what happened and when.
+
+Each event is stored as an `EpisodicEvent`:
+
+```typescript
+export interface EpisodicEvent {
+  id: string;
+  timestamp: number;
+  type: string;
+  summary: string;
+  channelType: string;
+  metadata?: Record<string, unknown>;
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique identifier |
+| `timestamp` | Unix millisecond timestamp |
+| `type` | Event category (e.g., `"task_complete"`, `"skill_invoked"`, `"error"`) |
+| `summary` | Human-readable description of what happened |
+| `channelType` | Which channel the event originated from (`"cli"`, `"telegram"`) |
+| `metadata` | Optional additional data; entries with `metadata.important = true` are exempt from pruning |
+
+Episodic events are stored as JSONL at `~/.mercury/memory/episodic/events.jsonl`. The store supports pruning: events older than a configurable number of days (default: 7) are removed, except entries marked as important.
+
+```typescript
+prune(olderThanDays: number = 7): number
+```
+
+## Flat-file persistence
+
+<AccordionGroup>
+  <Accordion title="Why flat files instead of a database?">
+    Mercury is designed to run with zero infrastructure dependencies. JSONL files are human-readable, trivially backed up, and work identically across macOS, Linux, and Windows. The memory access patterns — append-only writes, full-file reads on startup, keyword scan for retrieval — don't benefit from a relational or document database at Mercury's scale.
+  </Accordion>
+  <Accordion title="How are IDs generated?">
+    IDs are generated with a base-36 timestamp prefix combined with a random suffix:
+
+    ```typescript
+    function generateId(): string {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+    ```
+
+    This produces short, roughly time-sortable, collision-resistant identifiers without a UUID library.
+  </Accordion>
+  <Accordion title="What happens if a memory file is corrupted?">
+    Each store catches JSON parse errors per-line (for JSONL) or per-file (for JSON). Corrupted lines are silently skipped. Corrupted short-term JSON files return an empty message list, effectively starting the conversation fresh.
+  </Accordion>
+</AccordionGroup>

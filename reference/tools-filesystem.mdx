@@ -1,0 +1,212 @@
+---
+title: "Filesystem tools: read, write, create, and manage files"
+description: "Mercury's filesystem tools let the agent read, write, create, edit, list, delete, and send files — all governed by folder-level permission scopes."
+---
+
+Mercury's filesystem tools give the agent hands-on access to your files. Every operation is gated by the permission system: before Mercury can touch a path, that path must fall within an approved read or write scope. When a scope is missing, Mercury will call `approve_scope` to ask you for access before retrying. Scopes can be granted for the current session only, or persisted to `~/.mercury/permissions.yaml` for future sessions.
+
+<Note>
+All paths accept both absolute and relative formats. Relative paths resolve against the current working directory, which you can change with the [`cd`](/reference/tools-shell#cd) tool.
+</Note>
+
+## Permission model
+
+Mercury uses folder-level scoping. A scope covers a directory and everything beneath it. There are two modes:
+
+- **read** — allows `read_file`, `list_dir`, `send_file`
+- **write** — allows `write_file`, `create_file`, `edit_file`, `delete_file` (write implies read for the same path)
+
+When a tool is called on a path outside the current scopes, it returns a permission error and suggests calling `approve_scope` with the appropriate path and mode. You respond with **Allow** (session only), **Always** (persist to disk), or **Deny**.
+
+---
+
+## read_file
+
+Read the full text contents of a file. The file must be within an approved read scope and must not exceed 1 MB.
+
+<ParamField path="path" type="string" required>
+  Absolute or relative path to the file to read.
+</ParamField>
+
+**Permission:** read scope required for the file's parent directory.
+
+```text Example
+read_file({ path: "src/index.ts" })
+read_file({ path: "/home/user/projects/app/README.md" })
+```
+
+<Warning>
+Files larger than 1 MB are rejected. Use `list_dir` to inspect a directory before reading large trees.
+</Warning>
+
+---
+
+## write_file
+
+Overwrite the full contents of an existing file. The file must already exist — use `create_file` to create new files.
+
+<ParamField path="path" type="string" required>
+  Absolute or relative path to the file.
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  The new content to write to the file. Replaces all existing content.
+</ParamField>
+
+**Permission:** write scope required for the file's parent directory.
+
+```text Example
+write_file({ path: "config.json", content: "{ \"debug\": true }" })
+```
+
+<Note>
+For partial edits — changing one function, updating a single value — prefer `edit_file`. It is safer and produces a clearer diff.
+</Note>
+
+---
+
+## create_file
+
+Create a new file with the given content. Also creates any intermediate parent directories if they do not exist. Fails if the file already exists.
+
+<ParamField path="path" type="string" required>
+  Absolute or relative path for the new file.
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  The initial content for the new file.
+</ParamField>
+
+**Permission:** write scope required for the file's parent directory.
+
+```text Example
+create_file({ path: "src/utils/helpers.ts", content: "export function greet() {}" })
+```
+
+<Tip>
+Parent directories are created automatically with `mkdirSync({ recursive: true })`, so you can create deeply nested files in one call.
+</Tip>
+
+---
+
+## edit_file
+
+Replace an exact substring of an existing file with new content. The `old_string` must match exactly — including all whitespace and indentation — and must appear exactly once in the file.
+
+<ParamField path="path" type="string" required>
+  Absolute or relative path to the file to edit.
+</ParamField>
+
+<ParamField path="old_string" type="string" required>
+  The exact text to find in the file. Must match character-for-character, including indentation and line endings.
+</ParamField>
+
+<ParamField path="new_string" type="string" required>
+  The replacement text. Can be a different number of lines than `old_string`.
+</ParamField>
+
+**Permission:** write scope required for the file's parent directory.
+
+```text Example
+edit_file({
+  path: "src/app.ts",
+  old_string: "const PORT = 3000;",
+  new_string: "const PORT = process.env.PORT ?? 3000;"
+})
+```
+
+<Warning>
+The tool fails if `old_string` is found zero times (not found) or more than once (ambiguous). Provide enough surrounding context in `old_string` to make the match unique.
+</Warning>
+
+---
+
+## list_dir
+
+List the contents of a directory. Returns file names, types (file or directory), and file sizes.
+
+<ParamField path="path" type="string" required>
+  Absolute or relative path to the directory to list.
+</ParamField>
+
+**Permission:** read scope required for the directory.
+
+```text Example
+list_dir({ path: "." })
+list_dir({ path: "/home/user/projects" })
+```
+
+---
+
+## delete_file
+
+Delete a single file. This operation is irreversible. Directories cannot be deleted with this tool.
+
+<ParamField path="path" type="string" required>
+  Absolute or relative path to the file to delete.
+</ParamField>
+
+**Permission:** write scope required for the file's parent directory.
+
+<Warning>
+`delete_file` does not move files to trash — the deletion is permanent. The tool description notes that it "always confirms," meaning Mercury will always explain what it is about to delete and ask before proceeding in a conversational context.
+</Warning>
+
+```text Example
+delete_file({ path: "dist/old-bundle.js" })
+```
+
+---
+
+## send_file
+
+Send a file to the user. On Telegram the file is uploaded as a document attachment to the approved recipients. On the CLI the file path and size are displayed. Files must be within an approved read scope and must be under 50 MB.
+
+<ParamField path="path" type="string" required>
+  Absolute or relative path to the file to send.
+</ParamField>
+
+**Permission:** read scope required for the file's parent directory.
+
+```text Example
+send_file({ path: "reports/weekly-summary.pdf" })
+```
+
+---
+
+## approve_scope
+
+Request the user's approval to access a directory. Use this tool when any other filesystem tool returns a permission denied error. Presents the user with Allow / Always / Deny options. "Allow" grants session-only access; "Always" persists the scope to `~/.mercury/permissions.yaml`.
+
+<ParamField path="path" type="string" required>
+  The directory path to request access to.
+</ParamField>
+
+<ParamField path="mode" type='"read" | "write"' required>
+  The access mode needed: `"read"` for reading and listing, `"write"` for creating, editing, and deleting.
+</ParamField>
+
+**Permission:** no scope restriction — this tool is always available.
+
+<Steps>
+  <Step title="File tool returns permission denied">
+    A tool such as `read_file` or `write_file` returns an error like: `Permission denied for write access to /home/user/projects/app`.
+  </Step>
+  <Step title="Call approve_scope">
+    Mercury calls `approve_scope` with the blocked path and the required mode.
+  </Step>
+  <Step title="User responds">
+    The user selects **Allow** (session only), **Always** (persisted), or **Deny**.
+  </Step>
+  <Step title="Retry the original operation">
+    After approval, Mercury retries the original file tool call.
+  </Step>
+</Steps>
+
+```text Example
+approve_scope({ path: "/home/user/projects/app", mode: "write" })
+```
+
+<Info>
+See [Permissions](/features/permissions) for a full explanation of the scope system, the permissions manifest format, and how to pre-approve paths.
+</Info>

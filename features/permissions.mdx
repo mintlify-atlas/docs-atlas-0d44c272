@@ -1,0 +1,165 @@
+---
+title: "Permission system: hardened tool access control"
+description: "Mercury's permission system enforces folder-level read/write scoping and a shell command blocklist, with inline approval prompts before any sensitive action."
+---
+
+Mercury's core philosophy is simple: **ask first, act second**. Every file access and shell command is checked against a permission manifest before execution. Paths that haven't been explicitly scoped are denied. Shell commands that match a blocklist never run, regardless of context. This makes Mercury safe to run continuously as a daemon without worrying about runaway file deletions or network operations you didn't authorize.
+
+## Filesystem permissions
+
+Mercury enforces **folder-level scoping** for all file operations. A scope is a path entry that grants read and/or write access to a directory and everything inside it.
+
+```typescript
+export interface FileScope {
+  path: string;
+  read: boolean;
+  write: boolean;
+}
+
+export interface FsPermissions {
+  enabled: boolean;
+  scopes: FileScope[];
+}
+```
+
+The default manifest grants read+write to `.` (the current working directory at startup). Any path outside a registered scope is denied outright.
+
+### How scopes are evaluated
+
+When a file operation is requested, Mercury resolves the absolute path and walks the scope list looking for a prefix match. The first matching scope determines whether access is granted.
+
+| Response | Effect |
+|----------|--------|
+| `y` | Grants access for this session only (temp scope, not saved) |
+| `always` | Saves the scope permanently to `~/.mercury/permissions.yaml` |
+| `n` | Denies access; Mercury adjusts its approach |
+
+If no scope matches and Mercury is running in the CLI channel, it issues an inline prompt before proceeding.
+
+### Inline approval UX
+
+```
+⚠ Mercury needs write access to ~/projects/myapp. Allow? (y/n/always):
+> always
+[Scope saved to ~/.mercury/permissions.yaml]
+```
+
+Answering `always` saves the scope to the permissions manifest. You can edit `~/.mercury/permissions.yaml` directly at any time — Mercury re-reads it on next access check.
+
+### The `approve_scope` tool
+
+Mercury uses the `approve_scope` tool when it needs to request a new filesystem scope from within the agent loop. You can also instruct Mercury directly:
+
+> "You need write access to `~/projects/myapp` — use `approve_scope` with `path='~/projects/myapp'` and `mode='write'`."
+
+## Permissions manifest
+
+All permissions are stored at `~/.mercury/permissions.yaml`. The manifest structure maps directly to the `PermissionsManifest` interface:
+
+```yaml
+capabilities:
+  filesystem:
+    enabled: true
+    scopes:
+      - path: .
+        read: true
+        write: true
+      - path: /Users/you/projects/myapp
+        read: true
+        write: true
+  shell:
+    enabled: true
+    cwdOnly: true
+    blocked: [...]
+    autoApproved: [...]
+    needsApproval: [...]
+  git:
+    enabled: true
+    autoApproveRead: true
+    approveWrite: true
+```
+
+Edit this file directly to add, remove, or modify scopes. Changes take effect on the next permission check.
+
+## Shell permissions
+
+Shell commands are evaluated in three tiers: blocked, auto-approved, and needs-approval. Commands are also restricted to the CWD and any approved folder scopes by default (`cwdOnly: true`).
+
+### Blocked commands
+
+<Warning>
+These commands are **never executed**, regardless of context or user instruction. They match using glob-style patterns.
+</Warning>
+
+| Pattern | Reason |
+|---------|--------|
+| `sudo *` | Privilege escalation |
+| `rm -rf /` | Full filesystem wipe |
+| `rm -rf ~` | Home directory wipe |
+| `rm -rf /*` | Full filesystem wipe (variant) |
+| `mkfs *` | Disk format |
+| `dd if=*` | Raw disk write |
+| `chmod 777 /` | Root permission escalation |
+| `chown * /` | Root ownership takeover |
+| `:(){ :\|:& };:` | Fork bomb |
+| `shutdown *` | System shutdown |
+| `reboot *` | System reboot |
+| `halt *` | System halt |
+| `init 0` / `init 6` | Runlevel change |
+| `kill -9 1` | Kill init process |
+| `> /dev/sda` | Raw disk overwrite |
+| `mv /* /dev/null` | Filesystem destruction |
+
+### Auto-approved commands
+
+These commands run without a prompt. They are read-only or low-risk operations.
+
+| Pattern | Examples |
+|---------|---------|
+| `ls *` | `ls -la`, `ls src/` |
+| `cat *` | `cat README.md` |
+| `pwd` | Show current directory |
+| `which *` | `which node` |
+| `node *` | `node index.js` |
+| `npm run *` / `npm test *` / `npm list *` | Run scripts, tests, list packages |
+| `git status *` / `git diff *` / `git log *` / `git branch *` | Read-only git operations |
+| `echo *` | Print output |
+| `head *` / `tail *` / `wc *` | File inspection |
+| `find *` / `grep *` / `rg *` | Search operations |
+| `ps *` / `df *` / `du *` / `uname *` | System inspection |
+| `curl *` / `wget *` | Network fetch (without piping to shell) |
+
+### Needs-approval commands
+
+These commands require explicit approval before running. In CLI mode, Mercury uses the `approve_command` tool to pause and prompt you. In Telegram, an inline prompt is sent.
+
+| Pattern | Risk level |
+|---------|-----------|
+| `npm publish *` | Publishes package to npm registry |
+| `git push *` | Pushes commits to remote |
+| `docker *` | Container management |
+| `curl * \| sh` / `curl * \| bash` / `wget * \| sh` | Arbitrary remote code execution |
+| `pip install *` / `pip3 install *` | System package installation |
+| `rm -r *` / `rm -rf *` | Recursive deletion |
+| `mv *` | File moves (potentially destructive) |
+| `cp -r *` | Recursive copy |
+| `chmod *` | Permission changes |
+| `mkdir *` / `rmdir *` | Directory creation/removal |
+
+### The `approve_command` tool
+
+When a command falls into the needs-approval tier, Mercury calls `approve_command` to request user confirmation. Approving with `always` adds the command's base name to the auto-approved list and saves it to the manifest, so you won't be prompted for that command again.
+
+## Git permissions
+
+Git operations have their own permission tier, separate from the filesystem and shell checks.
+
+```typescript
+export interface GitPermissions {
+  enabled: boolean;
+  autoApproveRead: boolean;
+  approveWrite: boolean;
+}
+```
+
+By default, read operations (`git status`, `git diff`, `git log`, `git branch`) are auto-approved. Write operations (`git commit`, `git push`) require approval. Set `approveWrite: false` in the manifest to auto-approve all git writes.
